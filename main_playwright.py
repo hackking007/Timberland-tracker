@@ -26,9 +26,9 @@ def check_shoes():
         page = context.new_page()
         page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
 
-        for _ in range(5):
-            page.mouse.wheel(0, 2000)
-            page.wait_for_timeout(1000)
+        for _ in range(10):  # הגברה של הגלילה
+            page.mouse.wheel(0, 2500)
+            page.wait_for_timeout(1500)
 
         page.screenshot(path="screenshot.png", full_page=True)
         html = page.content()
@@ -40,22 +40,17 @@ def check_shoes():
 
     soup = BeautifulSoup(html, 'html.parser')
     found = []
+    all_logged = []
 
     for product in soup.select('div.product'):
         link_tag = product.select_one("a")
         img_tag = product.select_one("img")
         price_tags = product.select("span.price")
 
-        # שם הנעל
         title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
-
-        # קישור
         link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
-
-        # תמונה
         img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
-        # חילוץ מחירים חוקיים בלבד
         prices = []
         for tag in price_tags:
             try:
@@ -67,9 +62,13 @@ def check_shoes():
                 continue
 
         if not prices:
+            print(f"[🔍] {title} - אין מחיר חוקי (prices=[])")
             continue
 
         price = min(prices)
+
+        # הדפסת כל מוצר שזוהה
+        print(f"[✔] {title} | ₪{price} | {link}")
 
         if price < MAX_PRICE:
             message = f'*{title}* - ₪{price}\n[View Product]({link})'
