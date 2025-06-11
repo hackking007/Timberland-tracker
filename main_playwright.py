@@ -55,12 +55,14 @@ def check_shoes():
         # תמונה
         img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
-        # כל המחירים
+        # חילוץ מחירים חוקיים בלבד
         prices = []
         for tag in price_tags:
             try:
                 text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
-                prices.append(float(text))
+                price_val = float(text)
+                if price_val > 0:
+                    prices.append(price_val)
             except:
                 continue
 
