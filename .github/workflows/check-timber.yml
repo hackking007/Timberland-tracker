@@ -27,3 +27,9 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
+   
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-screenshot
+          path: screenshot.png
