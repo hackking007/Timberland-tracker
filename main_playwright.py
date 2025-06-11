@@ -1,6 +1,7 @@
 import os
 import requests
 from bs4 import BeautifulSoup
+import re
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
@@ -9,7 +10,7 @@ MAX_PRICE = 300
 BASE_URL = "https://www.timberland.co.il/men"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
-    "X-Requested-With": "XMLHttpRequest"  # הכותרת הקריטית שמחזירה את התוכן
+    "X-Requested-With": "XMLHttpRequest"
 }
 
 def send_telegram_message(message):
@@ -45,7 +46,8 @@ def parse_products(html):
         prices = []
         for tag in price_tags:
             try:
-                text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
+                # מסיר כל תו שהוא לא ספרה או נקודה
+                text = re.sub(r'[^\d.]', '', tag.text)
                 price_val = float(text)
                 if price_val > 0:
                     prices.append(price_val)
