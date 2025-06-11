@@ -24,15 +24,18 @@ def check_shoes():
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36'
         )
         page = context.new_page()
-        page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
 
+        # ✅ נכנסים לעמוד שמסונן מראש לפי מידה 43
+        page.goto('https://www.timberland.co.il/men?size=794', timeout=60000)
+
+        # מבצעים גלילה כדי לוודא שכל המוצרים נטענים
         for _ in range(10):
             page.mouse.wheel(0, 2500)
             page.wait_for_timeout(1500)
 
+        # צילום + שמירת HTML (לניטור אם צריך)
         page.screenshot(path="screenshot.png", full_page=True)
         html = page.content()
-
         with open("after_scroll.html", "w", encoding="utf-8") as f:
             f.write(html)
 
@@ -64,28 +67,11 @@ def check_shoes():
             price = min(prices)
             print(f"[✔] {title} | ₪{price} | {link}")
 
-            if price > MAX_PRICE:
-                continue
-
-            # כניסה לדף מוצר ובדיקת מידה 43
-            product_page = context.new_page()
-            try:
-                product_page.goto(link, timeout=30000)
-                has_size_43 = product_page.locator("span.show-text").filter(has_text="43").count() > 0
-            except:
-                print(f"[⚠️] שגיאה בעת טעינת מוצר: {title}")
-                product_page.close()
-                continue
-            product_page.close()
-
-            if not has_size_43:
-                print(f"[⛔] אין מידה 43 עבור {title}")
-                continue
-
-            message = f'*{title}* - ₪{price}\n[View Product]({link})'
-            if img_url:
-                message += f'\n{img_url}'
-            found.append(message)
+            if price <= MAX_PRICE:
+                message = f'*{title}* - ₪{price}\n[View Product]({link})'
+                if img_url:
+                    message += f'\n{img_url}'
+                found.append(message)
 
         if found:
             full_message = f'👟 *Shoes up to ₪{MAX_PRICE} with size 43*\n\n' + '\n\n'.join(found)
@@ -93,7 +79,6 @@ def check_shoes():
         else:
             send_telegram_message("🤷‍♂️ No matching shoes found with size 43.")
 
-        # ✅ רק בסוף
         browser.close()
 
 if __name__ == '__main__':
