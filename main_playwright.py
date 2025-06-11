@@ -8,7 +8,8 @@ MAX_PRICE = 300
 
 BASE_URL = "https://www.timberland.co.il/men"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
+    "X-Requested-With": "XMLHttpRequest"  # הכותרת הקריטית שמחזירה את התוכן
 }
 
 def send_telegram_message(message):
@@ -23,7 +24,7 @@ def send_telegram_message(message):
 def fetch_page_html(page):
     url = f"{BASE_URL}?p={page}&size=794&ajax=1"
     res = requests.get(url, headers=HEADERS)
-    if res.status_code == 200 and "html" in res.text:
+    if res.status_code == 200 and "product" in res.text:
         return res.text
     return ""
 
