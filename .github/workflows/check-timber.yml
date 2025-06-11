@@ -1,43 +1,48 @@
 name: Check Timberland Shoes
 
 on:
-  schedule:
-    - cron: "0 7,17 * * *"  # מריץ פעמיים ביום (07:00 ו-17:00 לפי זמן UTC)
   workflow_dispatch:
+  schedule:
+    - cron: "0 7,16 * * *"  # פעמיים ביום: 07:00 ו־16:00 לפי זמן UTC
 
 jobs:
-  check_shoes:
+  run-script:
     runs-on: ubuntu-latest
 
-    env:
-      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 playwright
           playwright install chromium
 
-      - name: Run script
-        run: python main_playwright.py
+      - name: Run the script
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
+          python main_playwright.py
 
-      - name: Upload site screenshot
+      - name: Upload screenshot
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: site-screenshot
-          path: site_screenshot.png
+          path: screenshot.png
+          if-no-files-found: ignore
 
-      - name: Upload HTML after scroll
+      - name: Upload HTML snapshot
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: after-scroll-html
           path: after_scroll.html
+          if-no-files-found: ignore
