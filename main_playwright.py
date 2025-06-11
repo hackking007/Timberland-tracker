@@ -1,4 +1,3 @@
-
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -20,10 +19,18 @@ def send_telegram_message(message):
 
 def check_shoes():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        browser = p.chromium.launch(headless=False)  # נשתמש בדפדפן עם GUI
+        context = browser.new_context(locale='he-IL', user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36')
+        page = context.new_page()
         page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
-        page.wait_for_selector('.product-item-info', timeout=60000)
+        page.screenshot(path="screenshot.png", full_page=True)  # צילום מסך לעיון
+
+        try:
+            page.wait_for_selector('.product-item-info', timeout=60000)
+        except:
+            send_telegram_message("❌ לא נמצאו מוצרים בדף. אולי נחסם על ידי האתר.")
+            return
+
         html = page.content()
         browser.close()
 
@@ -39,27 +46,14 @@ def check_shoes():
         link = title_tag['href']
         price = float(price_tag.text.replace('₪', '').replace(',', '').strip())
 
-        # Fetch product detail page to get sizes
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            detail_page = browser.new_page()
-            detail_page.goto(link, timeout=60000)
-            detail_page.wait_for_selector('.swatch-option.text', timeout=60000)
-            detail_html = detail_page.content()
-            browser.close()
-
-        detail_soup = BeautifulSoup(detail_html, 'html.parser')
-        size_buttons = detail_soup.select('.swatch-attribute-options .swatch-option.text')
-        sizes = [btn.text.strip() for btn in size_buttons]
-
-        if SIZE in sizes and price < MAX_PRICE:
-            found.append(f'*{title}*\n₪{price} - [View Product]({link})')
+        if SIZE in title and price < MAX_PRICE:
+            found.append(f'*{title}*\\n₪{price} - [View Product]({link})')
 
     if found:
-        message = f'👟 *Shoes Found ({SIZE}) under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
+        message = f'👟 *Shoes Found ({SIZE}) under ₪{MAX_PRICE}*\\n\\n' + '\\n\\n'.join(found)
         send_telegram_message(message)
     else:
-        send_telegram_message("🤷‍♂️ No matching shoes found at this time.")
+        send_telegram_message("🤷‍♂️ No matching shoes found.")
 
 if __name__ == '__main__':
     check_shoes()
