@@ -24,27 +24,30 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men?size=794", timeout=60000)
 
-        previous_height = 0
-        retries = 0
+        # גלילה עד שכל הכרטיסים נטענו
+        prev_count = 0
+        same_count_retries = 0
 
-        # גלילה עד הסוף
-        while retries < 5:
+        while same_count_retries < 5:
             page.mouse.wheel(0, 3000)
-            page.wait_for_timeout(1500)
-            current_height = page.evaluate("document.body.scrollHeight")
-            if current_height == previous_height:
-                retries += 1
+            page.wait_for_timeout(2000)
+            current_html = page.content()
+            soup = BeautifulSoup(current_html, 'html.parser')
+            products = soup.select('div.product')
+            if len(products) == prev_count:
+                same_count_retries += 1
             else:
-                retries = 0
-                previous_height = current_height
+                prev_count = len(products)
+                same_count_retries = 0
 
-        html = page.content()
-        soup = BeautifulSoup(html, 'html.parser')
-        product_cards = soup.select('div.product')
+        with open("after_scroll.html", "w", encoding="utf-8") as f:
+            f.write(current_html)
+
+        page.screenshot(path="screenshot.png", full_page=True)
 
         found = []
 
-        for card in product_cards:
+        for card in products:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
             price_tags = card.select("span.price")
@@ -58,7 +61,6 @@ def check_shoes():
 
             img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
-            # חילוץ המחיר
             prices = []
             for tag in price_tags:
                 try:
