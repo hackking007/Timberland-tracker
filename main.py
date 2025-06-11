@@ -55,6 +55,8 @@ def check_shoes():
     if found:
         message = f'👟 *Shoes Found ({SIZE}) under ₪{MAX_PRICE}*\\n\\n' + '\\n\\n'.join(found)
         send_telegram_message(message)
+    else:
+        print("לא נמצאו נעליים מתאימות במידה 43 ובמחיר מתחת ל-299")
 
 if __name__ == '__main__':
     check_shoes()
