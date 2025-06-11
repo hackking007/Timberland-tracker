@@ -22,22 +22,20 @@ def check_shoes():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
         page = context.new_page()
-
-        # פתיחה של עמוד עם סינון מידה 43
         page.goto("https://www.timberland.co.il/men?size=794", timeout=60000)
 
-        # גלילה ולחיצה על "טען עוד" עד שנעלם
+        # לחץ שוב ושוב על כפתור 'טען עוד' עד שנעלם
         while True:
             try:
-                load_more_button = page.query_selector("button.load-more")
-                if not load_more_button:
+                load_more_button = page.locator("button.action.load-more")
+                if load_more_button.is_visible():
+                    load_more_button.click()
+                    page.wait_for_timeout(1500)
+                else:
                     break
-                load_more_button.click()
-                page.wait_for_timeout(2000)
             except:
                 break
 
-        # לשמור עותק של הדף המלא
         html = page.content()
         with open("after_scroll.html", "w", encoding="utf-8") as f:
             f.write(html)
@@ -57,9 +55,9 @@ def check_shoes():
                 continue
             if not link.startswith("http"):
                 link = "https://www.timberland.co.il" + link
+
             img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
-            # חילוץ מחיר תקף
             prices = []
             for tag in price_tags:
                 try:
@@ -69,14 +67,14 @@ def check_shoes():
                         prices.append(price_val)
                 except:
                     continue
+
             if not prices or min(prices) > MAX_PRICE:
                 continue
 
-            # בדיקת מידה 43 מתוך עמוד המוצר
+            # בדיקת זמינות מידה 43 בדף מוצר
             product_page = context.new_page()
             product_page.goto(link, timeout=30000)
-            product_html = product_page.content()
-            if SIZE_TO_MATCH not in product_html:
+            if SIZE_TO_MATCH not in product_page.content():
                 continue
 
             price = min(prices)
