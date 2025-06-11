@@ -26,7 +26,7 @@ def check_shoes():
         page = context.new_page()
         page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
 
-        for _ in range(10):  # הגברה של הגלילה
+        for _ in range(10):  # גלילה מוגברת
             page.mouse.wheel(0, 2500)
             page.wait_for_timeout(1500)
 
@@ -40,7 +40,6 @@ def check_shoes():
 
     soup = BeautifulSoup(html, 'html.parser')
     found = []
-    all_logged = []
 
     for product in soup.select('div.product'):
         link_tag = product.select_one("a")
@@ -62,22 +61,21 @@ def check_shoes():
                 continue
 
         if not prices:
-            print(f"[🔍] {title} - אין מחיר חוקי (prices=[])")
             continue
 
         price = min(prices)
 
-        # הדפסת כל מוצר שזוהה
+        # הדפסה לקונסול
         print(f"[✔] {title} | ₪{price} | {link}")
 
-        if price < MAX_PRICE:
+        if price <= MAX_PRICE:
             message = f'*{title}* - ₪{price}\n[View Product]({link})'
             if img_url:
                 message += f'\n{img_url}'
             found.append(message)
 
     if found:
-        full_message = f'👟 *Shoes under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
+        full_message = f'👟 *Shoes up to ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
         send_telegram_message(full_message)
     else:
         send_telegram_message("🤷‍♂️ No matching shoes found.")
