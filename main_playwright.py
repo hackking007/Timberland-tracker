@@ -47,9 +47,15 @@ def check_shoes():
         page = context.new_page()
         page.goto('https://www.timberland.co.il/men?size=794', timeout=60000)
 
-        for _ in range(10):
+        # גלילה חכמה עד סוף הדף
+        previous_height = 0
+        for _ in range(30):
             page.mouse.wheel(0, 3000)
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(1500)
+            current_height = page.evaluate("document.body.scrollHeight")
+            if current_height == previous_height:
+                break
+            previous_height = current_height
 
         html = page.content()
         soup = BeautifulSoup(html, 'html.parser')
