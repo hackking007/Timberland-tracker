@@ -34,3 +34,10 @@ jobs:
           name: site-screenshot
           path: screenshot.png
 
+      - name: Upload HTML after scroll
+        uses: actions/upload-artifact@v4
+        with:
+          name: after-scroll-html
+          path: after_scroll.html
+
+
