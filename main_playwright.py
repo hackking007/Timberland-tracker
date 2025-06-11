@@ -24,80 +24,88 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men?size=794", timeout=60000)
 
-        # גלילה ולחיצה על "טען עוד" עד שאין עוד
+        # טען את כל המוצרים עם כפתור "טען עוד"
         while True:
             try:
-                page.wait_for_timeout(1500)
-                load_more = page.query_selector('a.action.more')  # כפתור "טען עוד"
-                if load_more:
+                load_more = page.query_selector("button.load-more")
+                if load_more and load_more.is_enabled():
                     load_more.click()
                     page.wait_for_timeout(2000)
                 else:
                     break
-            except Exception:
+            except:
                 break
 
-        # צילום וכתיבת HTML
-        page.screenshot(path="screenshot.png", full_page=True)
+        # גלול לסוף הדף
+        previous_height = 0
+        for _ in range(5):
+            page.mouse.wheel(0, 3000)
+            page.wait_for_timeout(1500)
+            current_height = page.evaluate("document.body.scrollHeight")
+            if current_height == previous_height:
+                break
+            previous_height = current_height
+
         html = page.content()
         with open("after_scroll.html", "w", encoding="utf-8") as f:
             f.write(html)
 
-        soup = BeautifulSoup(html, 'html.parser')
-        product_cards = soup.select('div.product')
-        found = []
+        browser.close()
 
-        for card in product_cards:
-            link_tag = card.select_one("a")
-            img_tag = card.select_one("img")
-            price_tags = card.select("span.price")
+    soup = BeautifulSoup(html, 'html.parser')
+    product_cards = soup.select('div.product')
+    found = []
 
-            title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
-            link = link_tag['href'] if link_tag and link_tag.has_attr('href') else None
-            if not link:
-                continue
-            if not link.startswith("http"):
-                link = "https://www.timberland.co.il" + link
+    for card in product_cards:
+        link_tag = card.select_one("a")
+        img_tag = card.select_one("img")
+        price_tags = card.select("span.price")
 
-            img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+        title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
+        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else None
+        if not link:
+            continue
+        if not link.startswith("http"):
+            link = "https://www.timberland.co.il" + link
 
-            # חילוץ המחיר
-            prices = []
-            for tag in price_tags:
-                try:
-                    text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
-                    price_val = float(text)
-                    if price_val > 0:
-                        prices.append(price_val)
-                except:
-                    continue
+        img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
-            if not prices or min(prices) > MAX_PRICE:
-                continue
-
-            # בדיקת זמינות מידה 43 בדף המוצר עצמו
+        prices = []
+        for tag in price_tags:
             try:
-                product_page = context.new_page()
-                product_page.goto(link, timeout=30000)
-                product_html = product_page.content()
-                if SIZE_TO_MATCH not in product_html:
-                    continue
+                text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
+                price_val = float(text)
+                if price_val > 0:
+                    prices.append(price_val)
             except:
                 continue
 
-            price = min(prices)
-            message = f'*{title}* - ₪{price}\n[View Product]({link})'
-            if img_url:
-                message += f'\n{img_url}'
-            found.append(message)
+        if not prices or min(prices) > MAX_PRICE:
+            continue
 
-        if found:
-            full_message = f'👟 *Shoes with size {SIZE_TO_MATCH} under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
-            send_telegram_message(full_message)
-        else:
-            send_telegram_message(f"🤷‍♂️ No matching shoes found with size {SIZE_TO_MATCH}.")
+        # בדיקת מידה 43
+        with sync_playwright() as p2:
+            browser2 = p2.chromium.launch(headless=True)
+            context2 = browser2.new_context()
+            product_page = context2.new_page()
+            product_page.goto(link, timeout=30000)
+            product_html = product_page.content()
+            browser2.close()
 
-        browser.close()
+        if SIZE_TO_MATCH not in product_html:
+            continue
+
+        price = min(prices)
+        message = f'*{title}* - ₪{price}\n[View Product]({link})'
+        if img_url:
+            message += f'\n{img_url}'
+        found.append(message)
+
+    if found:
+        full_message = f'👟 *Shoes with size {SIZE_TO_MATCH} under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
+        send_telegram_message(full_message)
+    else:
+        send_telegram_message(f"🤷‍♂️ No matching shoes found with size {SIZE_TO_MATCH}.")
 
 if __name__ == '__main__':
     check_shoes()
