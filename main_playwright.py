@@ -25,7 +25,7 @@ def send_telegram_message(message):
 def fetch_page_html(page):
     url = f"{BASE_URL}?p={page}&size=794&ajax=1"
     res = requests.get(url, headers=HEADERS)
-    if res.status_code == 200 and "product" in res.text:
+    if res.status_code == 200:
         return res.text
     return ""
 
@@ -46,7 +46,6 @@ def parse_products(html):
         prices = []
         for tag in price_tags:
             try:
-                # מסיר כל תו שהוא לא ספרה או נקודה
                 text = re.sub(r'[^\d.]', '', tag.text)
                 price_val = float(text)
                 if price_val > 0:
@@ -72,15 +71,10 @@ def main():
     found = []
 
     while True:
-        print(f"🔄 Fetching page {page}...")
         html = fetch_page_html(page)
-        if not html:
-            break
-
         products = parse_products(html)
         if not products:
             break
-
         found.extend(products)
         page += 1
 
