@@ -2,7 +2,7 @@ name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: '0 6,16 * * *'  # Every day at 6:00 and 16:00 UTC (8:00 & 18:00 ישראל)
+    - cron: '0 6,16 * * *'  # 8:00 ו-18:00 שעון ישראל
   workflow_dispatch:
 
 jobs:
@@ -18,16 +18,12 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests beautifulsoup4 playwright
+          playwright install chromium
 
-      - name: Run script
+      - name: Run script with Playwright
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python main.py
-
-      - name: Upload HTML artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: timberland-html
-          path: timberland_output.html
+        run: python main_playwright.py
