@@ -1,16 +1,16 @@
 name: Check Timber Shoes
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: '0 7,16 * * *'  # פעמיים ביום: 07:00 ו-16:00 לפי UTC
+    - cron: '0 7,16 * * *'  # פעמיים ביום: 07:00 ו־16:00 לפי UTC (10:00 ו־19:00 בישראל)
+  workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt || echo "No requirements.txt"
+          pip install playwright
           playwright install chromium
 
       - name: Run script
