@@ -46,10 +46,16 @@ def check_shoes():
         img_tag = product.select_one("img")
         price_tags = product.select("span.price")
 
-        # חילוץ שם הנעל
-        title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "No title"
+        # שם הנעל
+        title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
 
-        # חילוץ מחירים
+        # קישור
+        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
+
+        # תמונה
+        img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+
+        # כל המחירים
         prices = []
         for tag in price_tags:
             try:
@@ -62,14 +68,16 @@ def check_shoes():
             continue
 
         price = min(prices)
-        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
 
         if price < MAX_PRICE:
-            found.append(f'*{title}*\\n₪{price} - [View Product]({link})')
+            message = f'*{title}* - ₪{price}\n[View Product]({link})'
+            if img_url:
+                message += f'\n{img_url}'
+            found.append(message)
 
     if found:
-        message = f'👟 *Shoes under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
-        send_telegram_message(message)
+        full_message = f'👟 *Shoes under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
+        send_telegram_message(full_message)
     else:
         send_telegram_message("🤷‍♂️ No matching shoes found.")
 
