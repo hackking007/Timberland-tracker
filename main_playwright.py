@@ -7,6 +7,7 @@ TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 300
 SIZE_TO_MATCH = "43"
+BASE_URL = "https://www.timberland.co.il"
 
 def send_telegram_message(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
@@ -22,24 +23,22 @@ def check_shoes():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
         page = context.new_page()
-        page.goto("https://www.timberland.co.il/men?size=794", timeout=60000)
 
-        # לחץ שוב ושוב על כפתור 'טען עוד' עד שנעלם
+        page.goto(f"{BASE_URL}/men?size=794", timeout=60000)
+
+        # לחיצה על כפתור "טען עוד" עד שאין יותר
         while True:
             try:
-                load_more_button = page.locator("button.action.load-more")
-                if load_more_button.is_visible():
-                    load_more_button.click()
-                    page.wait_for_timeout(1500)
+                load_more = page.query_selector("button.action.loadmore")
+                if load_more and load_more.is_enabled():
+                    load_more.click()
+                    page.wait_for_timeout(2000)
                 else:
                     break
             except:
                 break
 
         html = page.content()
-        with open("after_scroll.html", "w", encoding="utf-8") as f:
-            f.write(html)
-
         soup = BeautifulSoup(html, 'html.parser')
         product_cards = soup.select('div.product')
         found = []
@@ -54,7 +53,7 @@ def check_shoes():
             if not link:
                 continue
             if not link.startswith("http"):
-                link = "https://www.timberland.co.il" + link
+                link = BASE_URL + link
 
             img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
@@ -74,7 +73,8 @@ def check_shoes():
             # בדיקת זמינות מידה 43 בדף מוצר
             product_page = context.new_page()
             product_page.goto(link, timeout=30000)
-            if SIZE_TO_MATCH not in product_page.content():
+            product_html = product_page.content()
+            if SIZE_TO_MATCH not in product_html:
                 continue
 
             price = min(prices)
