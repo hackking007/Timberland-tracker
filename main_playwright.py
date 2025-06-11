@@ -19,16 +19,21 @@ def send_telegram_message(message):
 
 def check_shoes():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # נשתמש בדפדפן עם GUI
-        context = browser.new_context(locale='he-IL', user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36')
+        browser = p.chromium.launch(headless=True)  # חובה headless ב-GitHub Actions
+        context = browser.new_context(
+            locale='he-IL',
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36'
+        )
         page = context.new_page()
         page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
-        page.screenshot(path="screenshot.png", full_page=True)  # צילום מסך לעיון
+
+        # צילום מסך לבדיקת התוכן בדף
+        page.screenshot(path="screenshot.png", full_page=True)
 
         try:
-            page.wait_for_selector('.product-item-info', timeout=60000)
+            page.wait_for_selector('.product-item-info', timeout=30000)
         except:
-            send_telegram_message("❌ לא נמצאו מוצרים בדף. אולי נחסם על ידי האתר.")
+            send_telegram_message("❌ לא נמצאו מוצרים בדף (Playwright Headless). בדוק את הצילום.")
             return
 
         html = page.content()
