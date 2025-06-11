@@ -3,13 +3,13 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-# הגדרות בסיסיות
+# הגדרות טלגרם ומאפייני סינון
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 299
 SIZE = '43'
 
-# שליחת הודעה בטלגרם
+# שליחת הודעה לטלגרם
 def send_telegram_message(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
     payload = {
@@ -19,7 +19,7 @@ def send_telegram_message(message):
     }
     requests.post(url, data=payload)
 
-# פונקציית הבדיקה
+# הפונקציה הראשית
 def check_shoes():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -30,7 +30,7 @@ def check_shoes():
         page = context.new_page()
         page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
 
-        # גלילה למטה כדי לטעון מוצרים
+        # גלילה יזומה כדי לטעון מוצרים נוספים
         for i in range(5):
             page.mouse.wheel(0, 2000)
             page.wait_for_timeout(1000)
@@ -38,17 +38,18 @@ def check_shoes():
         # צילום מסך
         page.screenshot(path="screenshot.png", full_page=True)
 
-        # המתנה לטעינת מוצרים
+        # שמירת HTML בכל מקרה
+        html = page.content()
+        with open("after_scroll.html", "w", encoding="utf-8") as f:
+            f.write(html)
+
+        # ניסיון לחכות לטעינת מוצרים
         try:
             page.wait_for_selector('.product-item-info', timeout=30000)
         except:
             send_telegram_message("❌ לא נמצאו מוצרים בדף (גם לאחר גלילה).")
+            browser.close()
             return
-
-        # שמירת HTML לניתוח
-        html = page.content()
-        with open("after_scroll.html", "w", encoding="utf-8") as f:
-            f.write(html)
 
         browser.close()
 
@@ -69,13 +70,12 @@ def check_shoes():
         if price < MAX_PRICE:
             found.append(f'*{title}*\\n₪{price} - [View Product]({link})')
 
-    # שליחת התוצאה
     if found:
         message = f'👟 *Shoes Found under ₪{MAX_PRICE}*\\n\\n' + '\\n\\n'.join(found)
         send_telegram_message(message)
     else:
         send_telegram_message("🤷‍♂️ No matching shoes found.")
 
-# הפעלת הסקריפט
+# הרצה
 if __name__ == '__main__':
     check_shoes()
