@@ -3,10 +3,12 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
+# הגדרות טוקן וצ'אט
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
-MAX_PRICE = 299
+MAX_PRICE = 300  # ✅ עדכון לפי בקשתך
 
+# שליחת הודעה לטלגרם
 def send_telegram_message(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
     payload = {
@@ -16,6 +18,7 @@ def send_telegram_message(message):
     }
     requests.post(url, data=payload)
 
+# פונקציית בדיקת נעליים
 def check_shoes():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -26,10 +29,12 @@ def check_shoes():
         page = context.new_page()
         page.goto('https://www.timberland.co.il/men/footwear', timeout=60000)
 
-        for _ in range(10):  # גלילה מוגברת
+        # גלילה כדי לטעון מוצרים
+        for _ in range(10):
             page.mouse.wheel(0, 2500)
             page.wait_for_timeout(1500)
 
+        # צילום מסך ושמירת קוד HTML
         page.screenshot(path="screenshot.png", full_page=True)
         html = page.content()
 
@@ -50,6 +55,7 @@ def check_shoes():
         link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
         img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
+        # חילוץ מחירים חוקיים בלבד
         prices = []
         for tag in price_tags:
             try:
@@ -65,20 +71,23 @@ def check_shoes():
 
         price = min(prices)
 
-        # הדפסה לקונסול
+        # הדפסת כל נעל בקונסול (לוגים)
         print(f"[✔] {title} | ₪{price} | {link}")
 
+        # בדיקה אם עומד בתנאי המחיר
         if price <= MAX_PRICE:
             message = f'*{title}* - ₪{price}\n[View Product]({link})'
             if img_url:
                 message += f'\n{img_url}'
             found.append(message)
 
+    # שליחה לטלגרם
     if found:
         full_message = f'👟 *Shoes up to ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
         send_telegram_message(full_message)
     else:
         send_telegram_message("🤷‍♂️ No matching shoes found.")
 
+# הרצה
 if __name__ == '__main__':
     check_shoes()
