@@ -2,8 +2,8 @@ import requests
 from bs4 import BeautifulSoup
 import os
 
-TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
-CHAT_ID = os.environ['CHAT_ID']
+TELEGRAM_TOKEN = os.environ['8159372067:AAG8fJWprAIFdoALkpi_bgMs1Ndsbkk5seI']
+CHAT_ID = os.environ['353333002']
 MAX_PRICE = 299
 SIZE = '43'
 
