@@ -57,7 +57,7 @@ def check_shoes():
     soup = BeautifulSoup(html, 'html.parser')
     found = []
 
-    for product in soup.select('.product-item-info'):
+    for product in soup.select('div.product'):
         title_tag = product.select_one('.product-item-name a')
         price_tag = product.select_one('.price-wrapper .price')
         if not title_tag or not price_tag:
