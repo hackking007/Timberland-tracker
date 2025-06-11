@@ -2,7 +2,7 @@ name: Check Timber Shoes
 
 on:
   schedule:
-    - cron: '0 7,16 * * *'  # פעמיים ביום: 07:00 ו־16:00 לפי UTC (10:00 ו־19:00 בישראל)
+    - cron: '0 7,16 * * *'  # פעמיים ביום: 10:00 ו־19:00 בישראל
   workflow_dispatch:
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install playwright
+          pip install playwright requests
           playwright install chromium
 
       - name: Run script
