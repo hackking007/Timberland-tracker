@@ -24,28 +24,27 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men?size=794", timeout=60000)
 
-        # לטעון את כל המוצרים ע"י לחיצה על כפתור "טען עוד"
-        for _ in range(15):  # מקסימום 15 ניסיונות
+        # גלילה ולחיצה על "טען עוד" עד שאין עוד
+        while True:
             try:
-                load_more = page.query_selector("button.load-more, button.btn-load-more, .more-products > button")
-                if load_more and load_more.is_enabled():
+                page.wait_for_timeout(1500)
+                load_more = page.query_selector('a.action.more')  # כפתור "טען עוד"
+                if load_more:
                     load_more.click()
                     page.wait_for_timeout(2000)
                 else:
                     break
-            except:
+            except Exception:
                 break
 
-        page.wait_for_timeout(2000)
+        # צילום וכתיבת HTML
         page.screenshot(path="screenshot.png", full_page=True)
-
         html = page.content()
         with open("after_scroll.html", "w", encoding="utf-8") as f:
             f.write(html)
 
         soup = BeautifulSoup(html, 'html.parser')
         product_cards = soup.select('div.product')
-
         found = []
 
         for card in product_cards:
@@ -62,6 +61,7 @@ def check_shoes():
 
             img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
+            # חילוץ המחיר
             prices = []
             for tag in price_tags:
                 try:
@@ -75,7 +75,7 @@ def check_shoes():
             if not prices or min(prices) > MAX_PRICE:
                 continue
 
-            # בדיקת זמינות מידה 43 בעמוד המוצר
+            # בדיקת זמינות מידה 43 בדף המוצר עצמו
             try:
                 product_page = context.new_page()
                 product_page.goto(link, timeout=30000)
