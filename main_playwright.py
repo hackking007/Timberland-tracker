@@ -1,17 +1,11 @@
 import os
 import requests
 from bs4 import BeautifulSoup
-import re
+from playwright.sync_api import sync_playwright
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 300
-
-BASE_URL = "https://www.timberland.co.il/men"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36",
-    "X-Requested-With": "XMLHttpRequest"
-}
 
 def send_telegram_message(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
@@ -22,67 +16,82 @@ def send_telegram_message(message):
     }
     requests.post(url, data=payload)
 
-def fetch_page_html(page):
-    url = f"{BASE_URL}?p={page}&size=794&ajax=1"
-    res = requests.get(url, headers=HEADERS)
-    if res.status_code == 200:
-        return res.text
-    return ""
+def has_size_43(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    size_tags = soup.select("div.swatch-option.text")
+    for tag in size_tags:
+        if "43" in tag.text.strip() and "disabled" not in tag.get("class", []):
+            return True
+    return False
 
-def parse_products(html):
-    soup = BeautifulSoup(html, "html.parser")
-    products = soup.select("div.product")
-    results = []
+def get_product_price(soup):
+    price_tags = soup.select("span.price")
+    prices = []
+    for tag in price_tags:
+        try:
+            clean = tag.text.replace("₪", "").replace(",", "").replace("\xa0", "").strip()
+            price = float(clean)
+            if price > 0:
+                prices.append(price)
+        except:
+            continue
+    return min(prices) if prices else None
 
-    for product in products:
-        link_tag = product.select_one("a")
-        img_tag = product.select_one("img")
-        price_tags = product.select("span.price")
+def check_shoes():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            locale='he-IL',
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/123.0.0.0 Safari/537.36'
+        )
+        page = context.new_page()
+        page.goto('https://www.timberland.co.il/men?size=794', timeout=60000)
 
-        title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
-        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
-        img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+        for _ in range(10):
+            page.mouse.wheel(0, 3000)
+            page.wait_for_timeout(1000)
 
-        prices = []
-        for tag in price_tags:
-            try:
-                text = re.sub(r'[^\d.]', '', tag.text)
-                price_val = float(text)
-                if price_val > 0:
-                    prices.append(price_val)
-            except:
+        html = page.content()
+        soup = BeautifulSoup(html, 'html.parser')
+        products = soup.select("div.product")
+        found = []
+
+        for product in products:
+            link_tag = product.select_one("a")
+            img_tag = product.select_one("img")
+
+            title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
+            link = link_tag['href'] if link_tag and link_tag.has_attr('href') else None
+            img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+
+            if not link:
                 continue
 
-        if not prices:
-            continue
+            product_page = context.new_page()
+            product_page.goto(link, timeout=30000)
+            product_html = product_page.content()
+            product_soup = BeautifulSoup(product_html, 'html.parser')
 
-        price = min(prices)
+            if not has_size_43(product_html):
+                product_page.close()
+                continue
 
-        if price <= MAX_PRICE:
-            message = f'*{title}* - ₪{price}\n[View Product]({link})'
-            if img_url:
-                message += f'\n{img_url}'
-            results.append(message)
+            price = get_product_price(product_soup)
+            if price and price <= MAX_PRICE:
+                message = f'*{title}* - ₪{price}\n[View Product]({link})'
+                if img_url:
+                    message += f'\n{img_url}'
+                found.append(message)
 
-    return results
+            product_page.close()
 
-def main():
-    page = 1
-    found = []
+        browser.close()
 
-    while True:
-        html = fetch_page_html(page)
-        products = parse_products(html)
-        if not products:
-            break
-        found.extend(products)
-        page += 1
-
-    if found:
-        full_message = f'👟 *Shoes up to ₪{MAX_PRICE} with size 43*\n\n' + '\n\n'.join(found)
-        send_telegram_message(full_message)
-    else:
-        send_telegram_message("🤷‍♂️ No matching shoes found with size 43.")
+        if found:
+            full_message = f'👟 *Shoes with size 43 under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
+            send_telegram_message(full_message)
+        else:
+            send_telegram_message("🤷‍♂️ No matching shoes found with size 43.")
 
 if __name__ == '__main__':
-    main()
+    check_shoes()
