@@ -2,7 +2,7 @@ name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: "0 8,18 * * *" # Every day at 08:00 and 18:00 UTC (11:00 ו-21:00 שעון ישראל)
+    - cron: "0 8,18 * * *"  # פעמיים ביום ב-11:00 וב-21:00 לפי שעון ישראל
   workflow_dispatch:
 
 jobs:
