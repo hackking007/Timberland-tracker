@@ -28,9 +28,7 @@ def send_telegram_message(message):
     requests.post(url, data=payload)
 
 def check_shoes():
-    url = 'https://www.timberland.co.il/men/footwear'
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    send_telegram_message("✅ *בדיקה - ההודעה נשלחה בהצלחה!*")
 
     found = []
     for product in soup.select('.product-item-info'):
