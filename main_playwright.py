@@ -42,18 +42,27 @@ def check_shoes():
     found = []
 
     for product in soup.select('div.product'):
-        price_tag = product.select_one("span.price")
         link_tag = product.select_one("a")
         img_tag = product.select_one("img")
+        price_tags = product.select("span.price")
 
+        # חילוץ שם הנעל
         title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "No title"
-        price_text = price_tag.text.strip() if price_tag else None
-        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
 
-        try:
-            price = float(price_text.replace('₪', '').replace(',', '').strip())
-        except:
+        # חילוץ מחירים
+        prices = []
+        for tag in price_tags:
+            try:
+                text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
+                prices.append(float(text))
+            except:
+                continue
+
+        if not prices:
             continue
+
+        price = min(prices)
+        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else "#"
 
         if price < MAX_PRICE:
             found.append(f'*{title}*\\n₪{price} - [View Product]({link})')
