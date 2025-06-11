@@ -1,13 +1,14 @@
-name: Check Timberland Shoes
+name: Check Timber Shoes
 
 on:
-  schedule:
-    - cron: '0 6,16 * * *'  # 8:00 ו-18:00 שעון ישראל
   workflow_dispatch:
+  schedule:
+    - cron: '0 7,16 * * *'  # פעמיים ביום: 07:00 ו-16:00 לפי UTC
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -19,25 +20,23 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 playwright
+          pip install -r requirements.txt || echo "No requirements.txt"
           playwright install chromium
 
-      - name: Run script with Playwright
+      - name: Run script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
-   
-      - name: Upload screenshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: site-screenshot
-          path: screenshot.png
 
-      - name: Upload HTML after scroll
+      - name: Upload HTML output
         uses: actions/upload-artifact@v4
         with:
           name: after-scroll-html
           path: after_scroll.html
 
-
+      - name: Upload Screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-screenshot
+          path: site_screenshot.png
