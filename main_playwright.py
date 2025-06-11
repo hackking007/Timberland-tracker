@@ -17,21 +17,6 @@ def send_telegram_message(message):
     }
     requests.post(url, data=payload)
 
-def scroll_to_bottom(page):
-    previous_height = 0
-    stable_scrolls = 0
-    max_stable_scrolls = 5
-
-    while stable_scrolls < max_stable_scrolls:
-        page.mouse.wheel(0, 5000)
-        page.wait_for_timeout(1500)
-        current_height = page.evaluate("document.body.scrollHeight")
-        if current_height == previous_height:
-            stable_scrolls += 1
-        else:
-            stable_scrolls = 0
-            previous_height = current_height
-
 def check_shoes():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -39,14 +24,24 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men?size=794", timeout=60000)
 
-        # גלילה עד שלא נטען יותר תוכן
-        scroll_to_bottom(page)
+        # לטעון את כל המוצרים ע"י לחיצה על כפתור "טען עוד"
+        for _ in range(15):  # מקסימום 15 ניסיונות
+            try:
+                load_more = page.query_selector("button.load-more, button.btn-load-more, .more-products > button")
+                if load_more and load_more.is_enabled():
+                    load_more.click()
+                    page.wait_for_timeout(2000)
+                else:
+                    break
+            except:
+                break
+
+        page.wait_for_timeout(2000)
+        page.screenshot(path="screenshot.png", full_page=True)
 
         html = page.content()
         with open("after_scroll.html", "w", encoding="utf-8") as f:
             f.write(html)
-
-        page.screenshot(path="screenshot.png", full_page=True)
 
         soup = BeautifulSoup(html, 'html.parser')
         product_cards = soup.select('div.product')
@@ -80,11 +75,14 @@ def check_shoes():
             if not prices or min(prices) > MAX_PRICE:
                 continue
 
-            # בדיקת מידה 43 בדף הפרטי
-            product_page = context.new_page()
-            product_page.goto(link, timeout=30000)
-            product_html = product_page.content()
-            if SIZE_TO_MATCH not in product_html:
+            # בדיקת זמינות מידה 43 בעמוד המוצר
+            try:
+                product_page = context.new_page()
+                product_page.goto(link, timeout=30000)
+                product_html = product_page.content()
+                if SIZE_TO_MATCH not in product_html:
+                    continue
+            except:
                 continue
 
             price = min(prices)
@@ -93,13 +91,13 @@ def check_shoes():
                 message += f'\n{img_url}'
             found.append(message)
 
-        browser.close()
-
         if found:
             full_message = f'👟 *Shoes with size {SIZE_TO_MATCH} under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
             send_telegram_message(full_message)
         else:
             send_telegram_message(f"🤷‍♂️ No matching shoes found with size {SIZE_TO_MATCH}.")
+
+        browser.close()
 
 if __name__ == '__main__':
     check_shoes()
