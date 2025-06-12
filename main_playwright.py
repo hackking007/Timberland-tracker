@@ -23,7 +23,7 @@ def check_shoes():
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
         page = context.new_page()
-        page.goto("https://www.timberland.co.il/men/footwear?price=198_305&product_list_order=low_to_high&size=794", timeout=60000)
+        page.goto("https://www.timberland.co.il/men/footwear?price=100_305&product_list_order=low_to_high&size=794", timeout=60000)
 
         # טעינת כל המוצרים ע"י לחיצה על כפתור 'טען עוד'
         while True:
