@@ -2,8 +2,8 @@ name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: "30 5 * * *"   # 08:30 Israel time
-    - cron: "30 17 * * *"  # 20:30 Israel time
+    - cron: "30 5 * * *"   # 08:30 Israel time (UTC+3)
+    - cron: "30 17 * * *"  # 20:30 Israel time (UTC+3)
   workflow_dispatch:
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Download previous shoes_state.json
+      - name: Download shoes_state.json from previous run
         uses: actions/download-artifact@v4
         with:
           name: shoes-state
@@ -37,8 +37,13 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload updated shoes state JSON
+      - name: Save shoes_state.json for next run
         uses: actions/upload-artifact@v4
         with:
           name: shoes-state
           path: shoes_state.json
+
+      - name: Cleanup
+        run: |
+          rm -f screenshot.png || true
+          rm -f after_scroll.html || true
