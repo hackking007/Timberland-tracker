@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  # ודא שזה פעיל
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,24 +27,16 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Download previous state
-        uses: actions/download-artifact@v4
-        with:
-          name: shoes-state
-          path: .data
-        continue-on-error: true
-
-      - name: Run main script
+      - name: Run script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload updated state
-        uses: actions/upload-artifact@v4
-        with:
-          name: shoes-state
-          path: .data/shoes_state.json
-
-      - name: Cleanup
-        run: rm -f screenshot.png after_scroll.html
+      - name: Commit updated state JSON
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add shoes_state.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update shoes_state.json"
+          git push
