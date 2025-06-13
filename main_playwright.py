@@ -54,8 +54,6 @@ def check_shoes():
         product_cards = soup.select('div.product')
 
         current_items = {}
-        found_messages = []
-
         for card in product_cards:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
@@ -103,15 +101,13 @@ def check_shoes():
 
         browser.close()
 
-        # השוואה למצב קודם
         previous_state = load_previous_state()
         new_keys = set(current_items.keys()) - set(previous_state.keys())
         removed_keys = set(previous_state.keys()) - set(current_items.keys())
-        price_changed = []
-
-        for key in set(current_items.keys()) & set(previous_state.keys()):
-            if current_items[key]['price'] != previous_state[key]['price']:
-                price_changed.append(key)
+        price_changed = [
+            key for key in set(current_items.keys()) & set(previous_state.keys())
+            if current_items[key]['price'] != previous_state[key]['price']
+        ]
 
         if new_keys or removed_keys or price_changed:
             messages = []
@@ -131,7 +127,7 @@ def check_shoes():
 
             send_telegram_message("👟 *עדכון לגבי נעליים במידה 43 מתחת ל־₪300:*\n\n" + '\n\n'.join(messages))
         else:
-            send_telegram_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
+            send_telegram_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.\n(הסקריפט רץ בהצלחה)")
 
         save_current_state(current_items)
 
