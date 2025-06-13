@@ -1,18 +1,12 @@
 import os
-import json
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-from dotenv import load_dotenv
-
-# Load .env file if it exists (for local dev)
-load_dotenv()
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 300
 SIZE_TO_MATCH = "43"
-STATE_FILE = "shoes_state.json"
 
 def send_telegram_message(message):
     url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
@@ -21,29 +15,18 @@ def send_telegram_message(message):
         'text': message,
         'parse_mode': 'Markdown'
     }
-    response = requests.post(url, data=payload)
-    print("✅ Telegram Response:")
-    print("Status Code:", response.status_code)
-    print("Body:", response.text)
-
-def load_previous_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
-
-def save_current_state(state):
-    with open(STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    requests.post(url, data=payload)
 
 def check_shoes():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
         page = context.new_page()
+
+        # גישה לעמוד המסונן לפי מידה 43 ומחיר עד 305
         page.goto("https://www.timberland.co.il/men/footwear?price=198_305&size=794", timeout=60000)
 
-        # גלילה כדי לטעון עוד מוצרים
+        # גלילה עד סוף הדף כדי לטעון את כל המוצרים
         previous_height = 0
         retries = 0
         while retries < 5:
@@ -53,14 +36,15 @@ def check_shoes():
             if current_height == previous_height:
                 retries += 1
             else:
-                retries = 0
                 previous_height = current_height
+                retries = 0
 
         html = page.content()
         soup = BeautifulSoup(html, 'html.parser')
         product_cards = soup.select('div.product')
 
-        current_items = {}
+        found = []
+
         for card in product_cards:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
@@ -88,57 +72,29 @@ def check_shoes():
             if not prices or min(prices) > MAX_PRICE:
                 continue
 
-            price = min(prices)
-
-            # בדיקה שהמידה 43 זמינה בפועל בעמוד המוצר
-            product_page = context.new_page()
-            product_page.goto(link, timeout=30000)
-            product_html = product_page.content()
-            if SIZE_TO_MATCH not in product_html:
+            # וידוא שמידה 43 זמינה בדף המוצר
+            try:
+                product_page = context.new_page()
+                product_page.goto(link, timeout=10000)
+                product_html = product_page.content()
+                if SIZE_TO_MATCH not in product_html:
+                    continue
+            except:
                 continue
 
-            key = f"{title}|{link}"
-            current_items[key] = {
-                'title': title,
-                'price': price,
-                'link': link,
-                'img_url': img_url
-            }
+            price = min(prices)
+            message = f'*{title}* - ₪{price}\n[View Product]({link})'
+            if img_url:
+                message += f'\n{img_url}'
+            found.append(message)
+
+        if found:
+            full_message = f'👟 *Shoes with size {SIZE_TO_MATCH} under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(found)
+            send_telegram_message(full_message)
+        else:
+            send_telegram_message(f"🤷‍♂️ No matching shoes found with size {SIZE_TO_MATCH}.")
 
         browser.close()
-
-        # השוואה למצב קודם
-        previous_state = load_previous_state()
-        new_keys = set(current_items.keys()) - set(previous_state.keys())
-        removed_keys = set(previous_state.keys()) - set(current_items.keys())
-        price_changed = []
-
-        for key in set(current_items.keys()) & set(previous_state.keys()):
-            if current_items[key]['price'] != previous_state[key]['price']:
-                price_changed.append(key)
-
-        if new_keys or removed_keys or price_changed:
-            messages = []
-
-            for key in new_keys:
-                item = current_items[key]
-                messages.append(f"🆕 *{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})\n{item['img_url']}")
-
-            for key in price_changed:
-                item = current_items[key]
-                old_price = previous_state[key]['price']
-                messages.append(f"🔄 *{item['title']}*\nמחיר השתנה: ₪{old_price} ➜ ₪{item['price']}\n[View Product]({item['link']})\n{item['img_url']}")
-
-            for key in removed_keys:
-                item = previous_state[key]
-                messages.append(f"❌ *{item['title']}* כבר לא זמינה\n[View Product]({item['link']})")
-
-            full_msg = "👟 *עדכון לגבי נעליים במידה 43 מתחת ל־₪300:*\n\n" + '\n\n'.join(messages)
-            send_telegram_message(full_msg)
-        else:
-            send_telegram_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
-
-        save_current_state(current_items)
 
 if __name__ == '__main__':
     check_shoes()
