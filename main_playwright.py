@@ -1,11 +1,19 @@
+import os
 import requests
 
-TELEGRAM_TOKEN = "הכנס_כאן_את_הטוקן"
-CHAT_ID = "הכנס_כאן_את_הצ׳אט_ID"
+TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
+CHAT_ID = os.environ['CHAT_ID']
 
-msg = "בדיקה ידנית: הבוט פעיל?"
-url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-payload = {'chat_id': CHAT_ID, 'text': msg}
+def send_test_message():
+    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
+    payload = {
+        'chat_id': CHAT_ID,
+        'text': '✅ בדיקת חיבור: הבוט עובד ומוכן לשליחה!',
+        'parse_mode': 'Markdown'
+    }
+    response = requests.post(url, data=payload)
+    print("Status Code:", response.status_code)
+    print("Response:", response.text)
 
-r = requests.post(url, data=payload)
-print(r.status_code, r.text)
+if __name__ == '__main__':
+    send_test_message()
