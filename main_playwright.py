@@ -4,14 +4,14 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
+# משתנים סביבתיים
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 300
 SIZE_TO_MATCH = "43"
+STATE_FILE = ".data/shoes_state.json"
 
-STATE_DIR = ".data"
-STATE_FILE = os.path.join(STATE_DIR, "shoes_state.json")
-
+# שליחת הודעה עם תמונה
 def send_photo_with_caption(image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
@@ -22,26 +22,30 @@ def send_photo_with_caption(image_url, caption):
     }
     requests.post(url, data=payload)
 
-def send_text_message(text):
+# שליחת הודעת טקסט בלבד
+def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown"
+        'chat_id': CHAT_ID,
+        'text': text,
+        'parse_mode': 'Markdown'
     }
     requests.post(url, data=payload)
 
+# טענת סטייט קודם
 def load_previous_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
+# שמירת הסטייט החדש
 def save_current_state(state):
-    os.makedirs(STATE_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
     with open(STATE_FILE, 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
+# ביצוע הבדיקה בפועל
 def check_shoes():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -49,6 +53,7 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men/footwear?price=198_305&product_list_order=low_to_high&size=794", timeout=60000)
 
+        # טעינה של כל המוצרים
         while True:
             try:
                 load_more = page.query_selector("a.action.more")
@@ -65,7 +70,6 @@ def check_shoes():
         product_cards = soup.select('div.product')
 
         current_items = {}
-
         for card in product_cards:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
@@ -95,10 +99,10 @@ def check_shoes():
 
             price = min(prices)
 
+            # בדיקת הופעת מידה 43 בדף מוצר
             product_page = context.new_page()
             product_page.goto(link, timeout=30000)
-            product_html = product_page.content()
-            if SIZE_TO_MATCH not in product_html:
+            if SIZE_TO_MATCH not in product_page.content():
                 continue
 
             key = f"{title}|{link}"
@@ -111,6 +115,7 @@ def check_shoes():
 
         browser.close()
 
+        # השוואה למצב קודם
         previous_state = load_previous_state()
         new_keys = set(current_items.keys()) - set(previous_state.keys())
         removed_keys = set(previous_state.keys()) - set(current_items.keys())
@@ -118,6 +123,7 @@ def check_shoes():
             key for key in current_items if key in previous_state and current_items[key]['price'] != previous_state[key]['price']
         ]
 
+        # שליחת הודעות בהתאם לשינויים
         if new_keys or removed_keys or price_changed:
             for key in new_keys:
                 item = current_items[key]
@@ -130,9 +136,9 @@ def check_shoes():
 
             for key in removed_keys:
                 item = previous_state[key]
-                send_text_message(f"❌ *{item['title']}* כבר לא זמינה\n[View Product]({item['link']})")
+                send_telegram_message(f"❌ *{item['title']}* כבר לא זמינה\n[View Product]({item['link']})")
         else:
-            send_text_message("✅ הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
+            send_telegram_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
 
         save_current_state(current_items)
 
