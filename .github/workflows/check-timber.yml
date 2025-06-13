@@ -2,8 +2,8 @@ name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: "30 5 * * *"   # 08:30 Israel Time (UTC+3)
-    - cron: "30 17 * * *"  # 20:30 Israel Time (UTC+3)
+    - cron: "30 5 * * *"   # 08:30 Israel time
+    - cron: "30 17 * * *"  # 20:30 Israel time
   workflow_dispatch:
 
 jobs:
@@ -31,14 +31,13 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload screenshot
+      - name: Save shoes state JSON
         uses: actions/upload-artifact@v4
         with:
-          name: site-screenshot
-          path: screenshot.png
+          name: shoes-state
+          path: shoes_state.json
 
-      - name: Upload HTML snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: after-scroll-html
-          path: after_scroll.html
+      - name: Cleanup temporary files
+        run: |
+          rm -f screenshot.png
+          rm -f after_scroll.html
