@@ -25,12 +25,11 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Download previous state (if exists)
+      - name: Download previous shoes state (if exists)
         uses: actions/download-artifact@v4
         with:
           name: shoes-state
           path: .
-        continue-on-error: true
 
       - name: Run script
         env:
@@ -38,7 +37,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload new state
+      - name: Save shoes state JSON
         uses: actions/upload-artifact@v4
         with:
           name: shoes-state
