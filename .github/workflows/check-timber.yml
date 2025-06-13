@@ -2,8 +2,8 @@ name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: "30 5 * * *"   # 08:30 Israel time
-    - cron: "30 17 * * *"  # 20:30 Israel time
+    - cron: "30 5 * * *"   # 08:30 Israel time (UTC+3)
+    - cron: "30 17 * * *"  # 20:30 Israel time (UTC+3)
   workflow_dispatch:
 
 jobs:
@@ -13,13 +13,18 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}  # ודא שזה פעיל
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Download previous state file
+        uses: actions/download-artifact@v4
+        with:
+          name: shoes-state
+          path: .
+        continue-on-error: true  # לא להפסיק את הריצה אם הקובץ לא קיים עדיין
 
       - name: Install dependencies
         run: |
@@ -33,10 +38,8 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Commit updated state JSON
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git add shoes_state.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update shoes_state.json"
-          git push
+      - name: Upload updated state file
+        uses: actions/upload-artifact@v4
+        with:
+          name: shoes-state
+          path: shoes_state.json
