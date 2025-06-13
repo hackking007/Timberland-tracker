@@ -46,7 +46,7 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men/footwear?price=198_305&product_list_order=low_to_high&size=794", timeout=60000)
 
-        # טעינה באמצעות 'טען עוד'
+        # טען עוד
         while True:
             try:
                 load_more = page.query_selector("a.action.more")
@@ -74,6 +74,7 @@ def check_shoes():
                 continue
             if not link.startswith("http"):
                 link = "https://www.timberland.co.il" + link
+
             img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
             prices = []
@@ -85,15 +86,21 @@ def check_shoes():
                         prices.append(price_val)
                 except:
                     continue
+
             if not prices or min(prices) > MAX_PRICE:
                 continue
+
             price = min(prices)
 
-            # בדיקת זמינות מידה
-            product_page = context.new_page()
-            product_page.goto(link, timeout=30000)
-            product_html = product_page.content()
-            if SIZE_TO_MATCH not in product_html:
+            # פתיחת עמוד מוצר ובדיקת מידה
+            try:
+                product_page = context.new_page()
+                product_page.goto(link, timeout=60000)
+                product_html = product_page.content()
+                if SIZE_TO_MATCH not in product_html:
+                    continue
+            except Exception as e:
+                print(f"שגיאה בטעינת {link}: {e}")
                 continue
 
             key = f"{title}|{link}"
@@ -110,20 +117,19 @@ def check_shoes():
         previous_state = load_previous_state()
         new_keys = set(current_items.keys()) - set(previous_state.keys())
         removed_keys = set(previous_state.keys()) - set(current_items.keys())
-        changed_price_keys = [
-            key for key in set(current_items.keys()) & set(previous_state.keys())
-            if current_items[key]['price'] != previous_state[key]['price']
-        ]
+        price_changed = []
 
-        if not new_keys and not removed_keys and not changed_price_keys:
-            send_text_message("✅ הנעליים שנשלחו עדיין רלוונטיות.")
-        else:
+        for key in set(current_items.keys()) & set(previous_state.keys()):
+            if current_items[key]['price'] != previous_state[key]['price']:
+                price_changed.append(key)
+
+        if new_keys or removed_keys or price_changed:
             for key in new_keys:
                 item = current_items[key]
                 caption = f"🆕 *{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})"
                 send_photo_with_caption(item['img_url'], caption)
 
-            for key in changed_price_keys:
+            for key in price_changed:
                 item = current_items[key]
                 old_price = previous_state[key]['price']
                 caption = f"🔄 *{item['title']}*\nמחיר השתנה: ₪{old_price} ➜ ₪{item['price']}\n[View Product]({item['link']})"
@@ -131,7 +137,10 @@ def check_shoes():
 
             for key in removed_keys:
                 item = previous_state[key]
-                send_text_message(f"❌ *{item['title']}* כבר לא זמינה\n[View Product]({item['link']})")
+                message = f"❌ *{item['title']}* כבר לא זמינה או לא במידה 43\n[View Product]({item['link']})"
+                send_text_message(message)
+        else:
+            send_text_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
 
         save_current_state(current_items)
 
