@@ -25,11 +25,14 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Download previous shoes state (if exists)
-        uses: actions/download-artifact@v4
-        with:
-          name: shoes-state
-          path: .
+      - name: Ensure shoes_state.json exists
+        run: |
+          if [ ! -f shoes_state.json ]; then
+            echo "{}" > shoes_state.json
+            echo "Created new empty shoes_state.json"
+          else
+            echo "Found existing shoes_state.json"
+          fi
 
       - name: Run script
         env:
