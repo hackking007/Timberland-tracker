@@ -25,14 +25,12 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Ensure shoes_state.json exists
-        run: |
-          if [ ! -f shoes_state.json ]; then
-            echo "{}" > shoes_state.json
-            echo "Created new empty shoes_state.json"
-          else
-            echo "Found existing shoes_state.json"
-          fi
+      - name: Download previous state file
+        uses: actions/download-artifact@v4
+        with:
+          name: shoes-state
+          path: .data
+        continue-on-error: true  # יתעלם משגיאה אם הקובץ עדיין לא קיים
 
       - name: Run script
         env:
@@ -40,11 +38,11 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Save shoes state JSON
+      - name: Upload updated state file
         uses: actions/upload-artifact@v4
         with:
           name: shoes-state
-          path: shoes_state.json
+          path: .data/shoes_state.json
 
       - name: Cleanup temporary files
         run: |
