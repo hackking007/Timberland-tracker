@@ -2,8 +2,8 @@ name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: "30 5 * * *"   # 08:30 Israel time (UTC+3)
-    - cron: "30 17 * * *"  # 20:30 Israel time (UTC+3)
+    - cron: "30 5 * * *"   # 08:30 Israel time
+    - cron: "30 17 * * *"  # 20:30 Israel time
   workflow_dispatch:
 
 jobs:
@@ -19,18 +19,18 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Download previous state file
-        uses: actions/download-artifact@v4
-        with:
-          name: shoes-state
-          path: .
-        continue-on-error: true  # לא להפסיק את הריצה אם הקובץ לא קיים עדיין
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           playwright install chromium
+
+      - name: Download previous state (if exists)
+        uses: actions/download-artifact@v4
+        with:
+          name: shoes-state
+          path: .
+        continue-on-error: true
 
       - name: Run script
         env:
@@ -38,7 +38,7 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload updated state file
+      - name: Upload new state
         uses: actions/upload-artifact@v4
         with:
           name: shoes-state
