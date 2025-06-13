@@ -8,7 +8,9 @@ TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 300
 SIZE_TO_MATCH = "43"
-STATE_FILE = "shoes_state.json"
+
+STATE_DIR = ".data"
+STATE_FILE = os.path.join(STATE_DIR, "shoes_state.json")
 
 def send_photo_with_caption(image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
@@ -21,11 +23,11 @@ def send_photo_with_caption(image_url, caption):
     requests.post(url, data=payload)
 
 def send_text_message(text):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
-        'chat_id': CHAT_ID,
-        'text': text,
-        'parse_mode': 'Markdown'
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
     }
     requests.post(url, data=payload)
 
@@ -36,6 +38,7 @@ def load_previous_state():
     return {}
 
 def save_current_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
     with open(STATE_FILE, 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
@@ -46,7 +49,6 @@ def check_shoes():
         page = context.new_page()
         page.goto("https://www.timberland.co.il/men/footwear?price=198_305&product_list_order=low_to_high&size=794", timeout=60000)
 
-        # טען עוד
         while True:
             try:
                 load_more = page.query_selector("a.action.more")
@@ -63,6 +65,7 @@ def check_shoes():
         product_cards = soup.select('div.product')
 
         current_items = {}
+
         for card in product_cards:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
@@ -92,15 +95,10 @@ def check_shoes():
 
             price = min(prices)
 
-            # פתיחת עמוד מוצר ובדיקת מידה
-            try:
-                product_page = context.new_page()
-                product_page.goto(link, timeout=60000)
-                product_html = product_page.content()
-                if SIZE_TO_MATCH not in product_html:
-                    continue
-            except Exception as e:
-                print(f"שגיאה בטעינת {link}: {e}")
+            product_page = context.new_page()
+            product_page.goto(link, timeout=30000)
+            product_html = product_page.content()
+            if SIZE_TO_MATCH not in product_html:
                 continue
 
             key = f"{title}|{link}"
@@ -113,34 +111,28 @@ def check_shoes():
 
         browser.close()
 
-        # השוואה למצב קודם
         previous_state = load_previous_state()
         new_keys = set(current_items.keys()) - set(previous_state.keys())
         removed_keys = set(previous_state.keys()) - set(current_items.keys())
-        price_changed = []
-
-        for key in set(current_items.keys()) & set(previous_state.keys()):
-            if current_items[key]['price'] != previous_state[key]['price']:
-                price_changed.append(key)
+        price_changed = [
+            key for key in current_items if key in previous_state and current_items[key]['price'] != previous_state[key]['price']
+        ]
 
         if new_keys or removed_keys or price_changed:
             for key in new_keys:
                 item = current_items[key]
-                caption = f"🆕 *{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})"
-                send_photo_with_caption(item['img_url'], caption)
+                send_photo_with_caption(item['img_url'], f"🆕 *{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})")
 
             for key in price_changed:
                 item = current_items[key]
                 old_price = previous_state[key]['price']
-                caption = f"🔄 *{item['title']}*\nמחיר השתנה: ₪{old_price} ➜ ₪{item['price']}\n[View Product]({item['link']})"
-                send_photo_with_caption(item['img_url'], caption)
+                send_photo_with_caption(item['img_url'], f"🔄 *{item['title']}*\nמחיר השתנה: ₪{old_price} ➜ ₪{item['price']}\n[View Product]({item['link']})")
 
             for key in removed_keys:
                 item = previous_state[key]
-                message = f"❌ *{item['title']}* כבר לא זמינה או לא במידה 43\n[View Product]({item['link']})"
-                send_text_message(message)
+                send_text_message(f"❌ *{item['title']}* כבר לא זמינה\n[View Product]({item['link']})")
         else:
-            send_text_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
+            send_text_message("✅ הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
 
         save_current_state(current_items)
 
