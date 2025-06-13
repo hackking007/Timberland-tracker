@@ -21,29 +21,22 @@ def send_telegram_message(message):
 
 def load_previous_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
+        with open(STATE_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {}
 
 def save_current_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+    with open(STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
 def check_shoes():
-    previous_state = load_previous_state()
-    current_state = {}
-
-    new_items = []
-    removed_items = []
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
         page = context.new_page()
+        page.goto("https://www.timberland.co.il/men/footwear?price=198_305&size=794", timeout=60000)
 
-        url = "https://www.timberland.co.il/men/footwear?price=10_305&product_list_order=low_to_high&size=794"
-        page.goto(url, timeout=60000)
-
+        # Scroll and load more
         previous_height = 0
         retries = 0
         while retries < 5:
@@ -56,24 +49,28 @@ def check_shoes():
                 retries = 0
                 previous_height = current_height
 
-        soup = BeautifulSoup(page.content(), 'html.parser')
+        html = page.content()
+        soup = BeautifulSoup(html, 'html.parser')
         product_cards = soup.select('div.product')
+
+        current_items = {}
+        found_messages = []
 
         for card in product_cards:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
             price_tags = card.select("span.price")
 
-            if not link_tag or not link_tag.has_attr("href"):
+            title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
+            link = link_tag['href'] if link_tag and link_tag.has_attr('href') else None
+            if not link:
                 continue
-
-            link = link_tag['href']
             if not link.startswith("http"):
                 link = "https://www.timberland.co.il" + link
 
-            title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
-            image_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+            img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
+            # חילוץ מחירים
             prices = []
             for tag in price_tags:
                 try:
@@ -84,50 +81,59 @@ def check_shoes():
                 except:
                     continue
 
-            if not prices:
+            if not prices or min(prices) > MAX_PRICE:
                 continue
 
             price = min(prices)
-            product_id = link.split("/")[-1]
 
-            if price <= MAX_PRICE:
-                current_state[product_id] = {
-                    "title": title,
-                    "price": price,
-                    "url": link,
-                    "img": image_url
-                }
+            # בדיקת הופעת מידה 43
+            product_page = context.new_page()
+            product_page.goto(link, timeout=30000)
+            product_html = product_page.content()
+            if SIZE_TO_MATCH not in product_html:
+                continue
 
-                if product_id not in previous_state:
-                    new_items.append(current_state[product_id])
-
-        for old_id in previous_state:
-            if old_id not in current_state:
-                removed_items.append(previous_state[old_id])
+            key = f"{title}|{link}"
+            current_items[key] = {
+                'title': title,
+                'price': price,
+                'link': link,
+                'img_url': img_url
+            }
 
         browser.close()
 
-    messages = []
+        # השוואה למצב קודם
+        previous_state = load_previous_state()
+        new_keys = set(current_items.keys()) - set(previous_state.keys())
+        removed_keys = set(previous_state.keys()) - set(current_items.keys())
+        price_changed = []
 
-    if new_items:
-        for item in new_items:
-            m = f'*{item["title"]}* - ₪{item["price"]}\n[View Product]({item["url"]})'
-            if item["img"]:
-                m += f'\n{item["img"]}'
-            messages.append(m)
+        for key in set(current_items.keys()) & set(previous_state.keys()):
+            if current_items[key]['price'] != previous_state[key]['price']:
+                price_changed.append(key)
 
-    if removed_items:
-        for item in removed_items:
-            m = f'❌ *Removed:* {item["title"]}\n{item["url"]}'
-            messages.append(m)
+        if new_keys or removed_keys or price_changed:
+            messages = []
 
-    if messages:
-        full_message = f'👟 *Shoes with size {SIZE_TO_MATCH} under ₪{MAX_PRICE}*\n\n' + '\n\n'.join(messages)
-        send_telegram_message(full_message)
-    else:
-        send_telegram_message(f"🤷‍♂️ No new changes found for shoes with size {SIZE_TO_MATCH}.")
+            for key in new_keys:
+                item = current_items[key]
+                messages.append(f"🆕 *{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})\n{item['img_url']}")
 
-    save_current_state(current_state)
+            for key in price_changed:
+                item = current_items[key]
+                old_price = previous_state[key]['price']
+                messages.append(f"🔄 *{item['title']}*\nמחיר השתנה: ₪{old_price} ➜ ₪{item['price']}\n[View Product]({item['link']})\n{item['img_url']}")
 
-if __name__ == "__main__":
+            for key in removed_keys:
+                item = previous_state[key]
+                messages.append(f"❌ *{item['title']}* כבר לא זמינה\n[View Product]({item['link']})")
+
+            send_telegram_message("👟 *עדכון לגבי נעליים במידה 43 מתחת ל־₪300:*\n\n" + '\n\n'.join(messages))
+        else:
+            send_telegram_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
+
+        save_current_state(current_items)
+
+if __name__ == '__main__':
     check_shoes()
