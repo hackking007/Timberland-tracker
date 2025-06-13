@@ -1,77 +1,81 @@
 import os
 import json
 import logging
-from telegram import Update, ForceReply
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
+    filters, ConversationHandler
+)
 
-# הגדרת שלבים לשיחה
-ASK_SIZE, ASK_PRICE = range(2)
+# קבצים קבועים
+USER_DATA_FILE = "user_data.json"
+START, SIZE, PRICE = range(3)
 
-# קובץ שמירת המשתמשים
-USERS_FILE = 'users.json'
+# טען משתמשים קיימים
+if os.path.exists(USER_DATA_FILE):
+    with open(USER_DATA_FILE, "r") as f:
+        user_data = json.load(f)
+else:
+    user_data = {}
 
-# קריאה או יצירה של קובץ המשתמשים
-def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
+# שמירה לקובץ
+def save_user_data():
+    with open(USER_DATA_FILE, "w") as f:
+        json.dump(user_data, f)
 
-def save_users(users):
-    with open(USERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
-
-# /start - תחילת תהליך ההרשמה
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("👟 ברוך הבא! נתחיל בהגדרת הפרטים.\nמה המידה שלך?")
-    return ASK_SIZE
+# התחלה
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👟 ברוך הבא! כדי להתחיל, באיזו מידה אתה מחפש נעליים?")
+    return SIZE
 
 # קבלת מידה
-async def ask_size(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def size_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
     size = update.message.text.strip()
-    context.user_data['size'] = size
-    await update.message.reply_text("🪙 מה טווח המחירים שאתה מחפש? לדוגמה: 200-300")
-    return ASK_PRICE
+    user_data[user_id] = {"size": size}
+    save_user_data()
+    await update.message.reply_text(f"🧮 מצוין! ועכשיו, מהו טווח המחירים הרצוי? (לדוג׳: 200-300)")
+    return PRICE
 
-# קבלת טווח מחירים ושמירת הנתונים
-async def ask_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+# קבלת טווח מחיר
+async def price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
     price_range = update.message.text.strip()
-    user_id = str(update.message.chat_id)
+    user_data[user_id]["price"] = price_range
+    save_user_data()
 
-    users = load_users()
-    users[user_id] = {
-        "size": context.user_data.get('size'),
-        "price_range": price_range,
-        "username": update.message.from_user.username or "",
-        "first_name": update.message.from_user.first_name or ""
-    }
-    save_users(users)
-
-    await update.message.reply_text("✅ ההגדרה נשמרה! תקבל התראות מותאמות אישית 🎯")
+    await update.message.reply_text("✅ ההעדפות שלך נשמרו! מהריצה הבאה תקבל התראות מותאמות אישית 🎯")
     return ConversationHandler.END
 
-# ביטול
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("❌ ההרשמה בוטלה. תוכל לנסות שוב עם /start")
-    return ConversationHandler.END
+# פקודה לצפייה בהעדפות
+async def show(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id in user_data:
+        size = user_data[user_id]["size"]
+        price = user_data[user_id]["price"]
+        await update.message.reply_text(f"🔧 ההעדפות שלך:\n• מידה: {size}\n• טווח מחירים: {price}")
+    else:
+        await update.message.reply_text("לא הגדרת עדיין העדפות. שלח /start כדי להתחיל.")
 
-# קונפיג לוגים
-logging.basicConfig(level=logging.INFO)
-
-if __name__ == '__main__':
-    TOKEN = os.environ['TELEGRAM_TOKEN']
-    app = ApplicationBuilder().token(TOKEN).build()
+# רישום הבוט
+def main():
+    app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
 
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+        entry_points=[CommandHandler("start", start)],
         states={
-            ASK_SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_size)],
-            ASK_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_price)],
+            SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, size_handler)],
+            PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_handler)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[],
     )
 
     app.add_handler(conv_handler)
+    app.add_handler(CommandHandler("show", show))
 
     print("🤖 Bot is running...")
     app.run_polling()
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    main()
