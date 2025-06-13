@@ -1,8 +1,8 @@
 import os
-‏import json
-‏import requests
-‏from bs4 import BeautifulSoup
-‏from playwright.sync_api import sync_playwright
+import json
+import requests
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 
 ‏TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 ‏CHAT_ID = os.environ['CHAT_ID']
