@@ -25,26 +25,24 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Download previous state file
+      - name: Download previous state
         uses: actions/download-artifact@v4
         with:
           name: shoes-state
           path: .data
-        continue-on-error: true  # יתעלם משגיאה אם הקובץ עדיין לא קיים
+        continue-on-error: true
 
-      - name: Run script
+      - name: Run main script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload updated state file
+      - name: Upload updated state
         uses: actions/upload-artifact@v4
         with:
           name: shoes-state
           path: .data/shoes_state.json
 
-      - name: Cleanup temporary files
-        run: |
-          rm -f screenshot.png
-          rm -f after_scroll.html
+      - name: Cleanup
+        run: rm -f screenshot.png after_scroll.html
