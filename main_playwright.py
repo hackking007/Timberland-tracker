@@ -1,5 +1,4 @@
 import os
-import json
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -8,16 +7,7 @@ TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
 MAX_PRICE = 300
 SIZE_TO_MATCH = "43"
-STATE_FILE = "shoes_state.json"  # נשמר בריפו
-
-def send_telegram_message(message):
-    url = f'https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage'
-    payload = {
-        'chat_id': CHAT_ID,
-        'text': message,
-        'parse_mode': 'Markdown'
-    }
-    requests.post(url, data=payload)
+STATE_FILE = "shoes_state.json"
 
 def send_photo_with_caption(image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
@@ -29,15 +19,24 @@ def send_photo_with_caption(image_url, caption):
     }
     requests.post(url, data=payload)
 
+def send_text_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, data=payload)
+
 def load_previous_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
+            return set(f.read().splitlines())
+    return set()
 
-def save_current_state(state):
+def save_current_state(keys):
     with open(STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+        f.write('\n'.join(keys))
 
 def check_shoes():
     with sync_playwright() as p:
@@ -61,7 +60,7 @@ def check_shoes():
         soup = BeautifulSoup(html, 'html.parser')
         product_cards = soup.select('div.product')
 
-        current_items = {}
+        found_items = {}
         for card in product_cards:
             link_tag = card.select_one("a")
             img_tag = card.select_one("img")
@@ -73,7 +72,6 @@ def check_shoes():
                 continue
             if not link.startswith("http"):
                 link = "https://www.timberland.co.il" + link
-
             img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
 
             prices = []
@@ -89,17 +87,15 @@ def check_shoes():
             if not prices or min(prices) > MAX_PRICE:
                 continue
 
-            price = min(prices)
-
-            # בדיקה אם מידה 43 קיימת בעמוד המוצר
             product_page = context.new_page()
             product_page.goto(link, timeout=30000)
             product_html = product_page.content()
             if SIZE_TO_MATCH not in product_html:
                 continue
 
+            price = min(prices)
             key = f"{title}|{link}"
-            current_items[key] = {
+            found_items[key] = {
                 'title': title,
                 'price': price,
                 'link': link,
@@ -108,35 +104,91 @@ def check_shoes():
 
         browser.close()
 
-        previous_state = load_previous_state()
-        new_keys = set(current_items.keys()) - set(previous_state.keys())
-        removed_keys = set(previous_state.keys()) - set(current_items.keys())
-        price_changed = []
+        previous_keys = load_previous_state()
+        current_keys = set(found_items.keys())
 
-        for key in set(current_items.keys()) & set(previous_state.keys()):
-            if current_items[key]['price'] != previous_state[key]['price']:
-                price_changed.append(key)
+        new_items = current_keys - previous_keys
+        removed_items = previous_keys - current_keys
 
-        if new_keys or removed_keys or price_changed:
-            for key in new_keys:
-                item = current_items[key]
-                caption = f"🆕 *{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})"
-                send_photo_with_caption(item['img_url'], caption)
+        if new_items:
+            for key in new_items:
+                item = found_items[key]
+                caption = f"*{item['title']}* - ₪{item['price']}\n[View Product]({item['link']})"
+                send_photo_with_caption(item['img_url'] or "https://via.placeholder.com/300", caption)
 
-            for key in price_changed:
-                item = current_items[key]
-                old_price = previous_state[key]['price']
-                caption = f"🔄 *{item['title']}*\nמחיר השתנה: ₪{old_price} ➜ ₪{item['price']}\n[View Product]({item['link']})"
-                send_photo_with_caption(item['img_url'], caption)
+        if removed_items:
+            for key in removed_items:
+                title, link = key.split("|")
+                send_text_message(f"❌ *{title}* כבר לא זמינה או שהמחיר השתנה.\n[View Product]({link})")
 
-            for key in removed_keys:
-                item = previous_state[key]
-                message = f"❌ *{item['title']}* כבר לא זמינה או לא עומדת בקריטריונים.\n[View Product]({item['link']})"
-                send_telegram_message(message)
-        else:
-            send_telegram_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
+        if not new_items and not removed_items:
+            send_text_message("✅ כל הנעליים ששלחנו בעבר עדיין זמינות ורלוונטיות.")
 
-        save_current_state(current_items)
+        save_current_state(current_keys)
+
+        send_coupon_update()
+
+# ------------------ קופונים ------------------ #
+
+def get_coupons_cashyo():
+    try:
+        url = "https://www.cashyo.co.il/retailer/timberland"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code != 200:
+            return []
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        coupons = []
+        for box in soup.select("div.coupon-box"):
+            title = box.select_one("h3.coupon-title")
+            code = box.select_one("div.code-box span.code")
+            if title:
+                coupons.append({
+                    "source": "Cashyo",
+                    "title": title.get_text(strip=True),
+                    "code": code.get_text(strip=True) if code else "אין קוד"
+                })
+        return coupons
+    except:
+        return []
+
+def get_coupons_freecoupon():
+    try:
+        url = "https://www.freecoupon.co.il/coupons/timberland/"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code != 200:
+            return []
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        coupons = []
+        for box in soup.select("div.discount-item"):
+            title = box.select_one("h3.entry-title")
+            code = box.select_one("div.discount-code span")
+            if title:
+                coupons.append({
+                    "source": "FreeCoupon",
+                    "title": title.get_text(strip=True),
+                    "code": code.get_text(strip=True) if code else "אין קוד"
+                })
+        return coupons
+    except:
+        return []
+
+def get_all_timberland_coupons():
+    return get_coupons_cashyo() + get_coupons_freecoupon()
+
+def format_coupons_message(coupons):
+    if not coupons:
+        return "🎁 *לא נמצאו קופונים זמינים.*"
+    message = "🎁 *קופונים רלוונטיים:*\n"
+    for c in coupons:
+        message += f"\n- {c['title']} | קוד: {c['code']}\n  (מקור: {c['source']})"
+    return message
+
+def send_coupon_update():
+    coupons = get_all_timberland_coupons()
+    message = format_coupons_message(coupons)
+    send_text_message(message)
+
+# ------------------- הרצה ------------------- #
 
 if __name__ == '__main__':
     check_shoes()
