@@ -1,13 +1,12 @@
 import os
 import json
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
     filters, ConversationHandler
 )
 
-# קבצים קבועים
 USER_DATA_FILE = "user_data.json"
 START, SIZE, PRICE = range(3)
 
@@ -18,13 +17,16 @@ if os.path.exists(USER_DATA_FILE):
 else:
     user_data = {}
 
-# שמירה לקובץ
 def save_user_data():
     with open(USER_DATA_FILE, "w") as f:
         json.dump(user_data, f)
 
 # התחלה
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id in user_data:
+        await update.message.reply_text("כבר הזנת העדפות ✅\nשלח /show כדי לצפות בהן או /reset כדי להתחיל מחדש.")
+        return ConversationHandler.END
     await update.message.reply_text("👟 ברוך הבא! כדי להתחיל, באיזו מידה אתה מחפש נעליים?")
     return SIZE
 
@@ -43,7 +45,6 @@ async def price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price_range = update.message.text.strip()
     user_data[user_id]["price"] = price_range
     save_user_data()
-
     await update.message.reply_text("✅ ההעדפות שלך נשמרו! מהריצה הבאה תקבל התראות מותאמות אישית 🎯")
     return ConversationHandler.END
 
@@ -57,6 +58,18 @@ async def show(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("לא הגדרת עדיין העדפות. שלח /start כדי להתחיל.")
 
+# אתחול הגדרות
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id in user_data:
+        del user_data[user_id]
+        save_user_data()
+    await update.message.reply_text("💥 ההעדפות נמחקו. שלח /start כדי להתחיל מחדש.")
+
+# ברירת מחדל לטקסט
+async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❓ אני לא בטוח איך לעזור בזה. שלח /start כדי להזין העדפות או /show כדי לצפות בהן.")
+
 # רישום הבוט
 def main():
     app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
@@ -67,11 +80,12 @@ def main():
             SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, size_handler)],
             PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_handler)],
         },
-        fallbacks=[],
+        fallbacks=[MessageHandler(filters.ALL, fallback)],
     )
 
     app.add_handler(conv_handler)
     app.add_handler(CommandHandler("show", show))
+    app.add_handler(CommandHandler("reset", reset))
 
     print("🤖 Bot is running...")
     app.run_polling()
