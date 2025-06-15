@@ -7,87 +7,60 @@ from telegram.ext import (
     filters, ConversationHandler
 )
 
-# קבצים קבועים
+# קבועים
 USER_DATA_FILE = "user_data.json"
-START, SIZE, PRICE, GENDER = range(4)
+GENDER, SIZE, PRICE = range(3)
 
-# טען משתמשים קיימים
+# טען מידע קיים
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
         user_data = json.load(f)
 else:
     user_data = {}
 
-# שמירה לקובץ
 def save_user_data():
     with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(user_data, f, ensure_ascii=False, indent=2)
 
-# התחלה
+# התחלה – גם אם המשתמש כבר קיים, נעדכן את ההעדפות
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👟 ברוך הבא! אילו נעליים מעניינות אותך?\n\n"
-        "בחר אחת או יותר: גברים / נשים / ילדים"
-    )
+    user_id = str(update.effective_user.id)
+    user_data[user_id] = {}
+    save_user_data()
+    await update.message.reply_text("👟 ברוך הבא! באיזו קטגוריה אתה מעוניין? (גברים / נשים / ילדים)")
     return GENDER
 
-# קבלת קטגוריה (גברים/נשים/ילדים)
 async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    gender = update.message.text.strip().lower()
-    if user_id not in user_data:
-        user_data[user_id] = {}
-
+    gender = update.message.text.strip()
     user_data[user_id]["gender"] = gender
     save_user_data()
-
-    await update.message.reply_text("📏 מצוין! איזו מידה אתה מחפש?")
+    await update.message.reply_text("📏 מה המידה שלך?")
     return SIZE
 
-# קבלת מידה
 async def size_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     size = update.message.text.strip()
     user_data[user_id]["size"] = size
     save_user_data()
-    await update.message.reply_text("💰 ומה טווח המחירים הרצוי? (לדוג׳: 200-300)")
+    await update.message.reply_text("💰 ומה טווח המחירים? (למשל: 100-300)")
     return PRICE
 
-# קבלת טווח מחיר
 async def price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    price_range = update.message.text.strip()
-    user_data[user_id]["price"] = price_range
+    price = update.message.text.strip()
+    user_data[user_id]["price"] = price
     save_user_data()
-
-    await update.message.reply_text("✅ ההעדפות שלך נשמרו! מהריצה הבאה תקבל התראות מותאמות אישית 🎯")
+    await update.message.reply_text("✅ תודה! ההעדפות נשמרו. תקבל התראות בהתאם מהריצה הבאה.")
     return ConversationHandler.END
 
-# פקודת צפייה בהעדפות
-async def show(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if user_id in user_data:
-        data = user_data[user_id]
-        await update.message.reply_text(
-            f"🔧 ההעדפות שלך:\n"
-            f"• קטגוריה: {data.get('gender', 'לא הוזן')}\n"
-            f"• מידה: {data.get('size', 'לא הוזן')}\n"
-            f"• טווח מחירים: {data.get('price', 'לא הוזן')}"
-        )
-    else:
-        await update.message.reply_text("לא הגדרת עדיין העדפות. שלח /start כדי להתחיל.")
-
-# פקודת איפוס העדפות
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id in user_data:
         del user_data[user_id]
         save_user_data()
-        await update.message.reply_text("🔄 ההעדפות שלך אופסו.\nשלח /start כדי להזין אותן מחדש.")
-    else:
-        await update.message.reply_text("🤔 אין לך העדפות שמורות.\nשלח /start כדי להתחיל.")
+    await update.message.reply_text("♻️ הנתונים שלך אופסו. שלח /start כדי להזין מחדש את ההעדפות.")
 
-# הרשמה והרצה
 def main():
     app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
 
@@ -102,10 +75,9 @@ def main():
     )
 
     app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("show", show))
     app.add_handler(CommandHandler("reset", reset))
 
-    print("🤖 Bot is running...")
+    logging.info("🤖 Bot is running...")
     app.run_polling()
 
 if __name__ == '__main__':
