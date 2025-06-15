@@ -1,12 +1,13 @@
-name: Timberland Tracker
+name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: '0 6,16 * * *'  # פעמיים ביום ב-6:00 ו-16:00 לפי UTC (9:00 ו-19:00 בישראל)
-  workflow_dispatch:  # מאפשר הרצה ידנית
+    - cron: "30 5 * * *"   # 08:30 Israel time (05:30 UTC)
+    - cron: "30 17 * * *"  # 20:30 Israel time (17:30 UTC)
+  workflow_dispatch:
 
 jobs:
-  run-script:
+  check:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,8 +22,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install playwright beautifulsoup4 requests
+          pip install -r requirements.txt
           playwright install chromium
+
+      - name: Download previous state
+        uses: actions/download-artifact@v4
+        with:
+          name: shoes-state
+          path: .
 
       - name: Run script
         env:
@@ -30,9 +37,13 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main_playwright.py
 
-      - name: Upload shoes_state.json artifact
-        if: always()
+      - name: Save shoes state JSON
         uses: actions/upload-artifact@v4
         with:
           name: shoes-state
           path: shoes_state.json
+
+      - name: Cleanup temporary files
+        run: |
+          rm -f screenshot.png
+          rm -f after_scroll.html
