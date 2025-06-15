@@ -1,24 +1,7 @@
 {
   "353333002": {
-    "https://www.timberland.co.il/men/footwear/a1abc-def": {
-      "title": "נעל גברים גבוהה בצבע חום",
-      "link": "https://www.timberland.co.il/men/footwear/a1abc-def",
-      "price": 289.9,
-      "img_url": "https://example.com/image1.jpg"
-    },
-    "https://www.timberland.co.il/men/footwear/a2xyz-ghi": {
-      "title": "נעל סניקרס גברים אפורה",
-      "link": "https://www.timberland.co.il/men/footwear/a2xyz-ghi",
-      "price": 299.0,
-      "img_url": "https://example.com/image2.jpg"
-    }
-  },
-  "123456789": {
-    "https://www.timberland.co.il/women/footwear/a9lmn-opq": {
-      "title": "נעל נשים שטוחה שחורה",
-      "link": "https://www.timberland.co.il/women/footwear/a9lmn-opq",
-      "price": 279.0,
-      "img_url": "https://example.com/image3.jpg"
-    }
+    "gender": "men",
+    "size": "43",
+    "price": "0-300"
   }
 }
