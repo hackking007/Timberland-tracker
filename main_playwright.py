@@ -4,42 +4,31 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
 USER_DATA_FILE = "user_data.json"
 STATE_FILE = "shoes_state.json"
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 
-CATEGORY_MAP = {
-    "גברים": ("men/footwear", "794"),
-    "נשים": ("women", "10"),
-    "ילדים": ("kids", "234")
-}
-
-def send_telegram_message(chat_id, text):
+def send_telegram_message(text):
+    print(f"📨 שולח טקסט:\n{text}\n")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, data={
-        "chat_id": chat_id,
+    payload = {
+        "chat_id": CHAT_ID,
         "text": text,
         "parse_mode": "Markdown"
-    })
+    }
+    requests.post(url, data=payload)
 
-def send_photo_with_caption(chat_id, img_url, caption):
+def send_photo_with_caption(image_url, caption):
+    print(f"🖼️ שולח תמונה: {caption}")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-    requests.post(url, data={
-        "chat_id": chat_id,
-        "photo": img_url,
+    payload = {
+        "chat_id": CHAT_ID,
+        "photo": image_url,
         "caption": caption,
         "parse_mode": "Markdown"
-    })
-
-def load_json_file(path):
-    return json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
-
-def save_json_file(data, path):
-    json.dump(data, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-
-def build_url(gender, size, price_range):
-    path, size_param = CATEGORY_MAP[gender]
-    return f"https://www.timberland.co.il/{path}?price={price_range.replace('-', '_')}&size={size_param}"
+    }
+    requests.post(url, data=payload)
 
 def get_coupon_text():
     return (
@@ -48,30 +37,61 @@ def get_coupon_text():
         "- 50 ש\"ח הנחה בקנייה מעל 300 ש\"ח | קוד: TIMBER50  \n  (מקור: FreeCoupon)"
     )
 
+def load_state(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        print(f"⚠️ לא נמצא קובץ {path}, משתמשים בערך ריק.")
+        return {}
+
+def save_state(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def build_url(gender, price_str, size):
+    base = {
+        "men": "https://www.timberland.co.il/men/footwear",
+        "women": "https://www.timberland.co.il/women",
+        "kids": "https://www.timberland.co.il/kids"
+    }[gender]
+
+    price_str = price_str.replace(" ", "")
+    price_param = f"price={price_str.replace('-', '_')}"
+    size_param = f"size={size}"
+    return f"{base}?{price_param}&{size_param}&product_list_order=low_to_high"
+
 def check_shoes():
-    user_data = load_json_file(USER_DATA_FILE)
-    previous_state = load_json_file(STATE_FILE)
-    current_state = {}
+    user_data = load_state(USER_DATA_FILE)
+    if not user_data:
+        print("⛔ לא קיימים משתמשים, יוצא.")
+        return
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(locale="he-IL")
+    for uid, prefs in user_data.items():
+        print(f"\n➡️ בודק עבור משתמש {uid}: {prefs}")
+        gender = prefs.get("gender", "men")
+        size = prefs.get("size", "43")
+        price = prefs.get("price", "0-300")
+        url = build_url(gender, price, size)
 
-        for user_id, prefs in user_data.items():
-            gender = prefs["gender"]
-            size = prefs["size"]
-            price_range = prefs["price"]
-            url = build_url(gender, size, price_range)
+        previous_state = load_state(STATE_FILE).get(uid, {})
+        current_state = {}
+        new_items = []
+        removed_items = []
+        changed_price_items = []
 
-            page = context.new_page()
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            print(f"🌐 גולש לכתובת: {url}")
             page.goto(url, timeout=60000)
 
             while True:
                 try:
-                    btn = page.query_selector("a.action.more")
-                    if btn:
-                        btn.click()
-                        page.wait_for_timeout(1200)
+                    load_more = page.query_selector("a.action.more")
+                    if load_more:
+                        load_more.click()
+                        page.wait_for_timeout(1000)
                     else:
                         break
                 except:
@@ -79,59 +99,62 @@ def check_shoes():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
             cards = soup.select("div.product")
-            user_items = {}
 
             for card in cards:
-                try:
-                    title = card.select_one("img")["alt"].strip()
-                    img = card.select_one("img")["src"]
-                    link = card.select_one("a")["href"]
-                    if not link.startswith("http"):
-                        link = "https://www.timberland.co.il" + link
-                    price_tags = card.select("span.price")
-                    prices = [float(t.text.replace("₪", "").replace(',', '').strip()) for t in price_tags if t.text.strip()]
-                    price = min(prices)
-                    if price > float(price_range.split("-")[1]):
+                link_tag = card.select_one("a")
+                img_tag = card.select_one("img")
+                price_tags = card.select("span.price")
+
+                title = img_tag['alt'].strip() if img_tag else "לא זוהה שם"
+                link = link_tag['href'] if link_tag else ""
+                if not link.startswith("http"):
+                    link = "https://www.timberland.co.il" + link
+                img_url = img_tag['src'] if img_tag else ""
+
+                prices = []
+                for tag in price_tags:
+                    try:
+                        prices.append(float(tag.text.strip().replace('₪', '').replace(',', '').replace('\xa0', '')))
+                    except:
                         continue
 
-                    # בדיקת מידה
-                    prod_page = context.new_page()
-                    prod_page.goto(link, timeout=30000)
-                    if size not in prod_page.content():
-                        continue
-
-                    user_items[link] = {"title": title, "link": link, "price": price, "img_url": img}
-
-                except:
+                if not prices:
                     continue
 
-            prev_items = previous_state.get(user_id, {})
-            new_keys = set(user_items) - set(prev_items)
-            removed_keys = set(prev_items) - set(user_items)
-            changed_keys = [k for k in user_items if k in prev_items and user_items[k]["price"] != prev_items[k]["price"]]
+                price_val = min(prices)
+                key = link
+                current_state[key] = {
+                    "title": title,
+                    "price": price_val,
+                    "img_url": img_url,
+                    "link": link
+                }
 
-            if not new_keys and not removed_keys and not changed_keys:
-                send_telegram_message(user_id, "✅ כל הנעליים ששלחנו בעבר עדיין רלוונטיות.")
-            else:
-                for key in new_keys:
-                    item = user_items[key]
-                    send_photo_with_caption(user_id, item["img_url"], f"🆕 *{item['title']}* - ₪{item['price']}\n[לצפייה]({item['link']})")
+                if key not in previous_state:
+                    caption = f"*{title}* - ₪{price_val}\n[לצפייה במוצר]({link})"
+                    send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
+                    new_items.append(title)
+                elif previous_state[key]["price"] != price_val:
+                    caption = f"*{title}*\n🔻 מחיר עודכן: ₪{previous_state[key]['price']} → ₪{price_val}\n[לצפייה במוצר]({link})"
+                    send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
+                    changed_price_items.append(title)
 
-                for key in changed_keys:
-                    item = user_items[key]
-                    old_price = prev_items[key]["price"]
-                    send_photo_with_caption(user_id, item["img_url"], f"🔄 *{item['title']}* עודכן מ־₪{old_price} ל־₪{item['price']}\n[לצפייה]({item['link']})")
+            for key in previous_state:
+                if key not in current_state:
+                    removed_title = previous_state[key]["title"]
+                    send_telegram_message(f"❌ הנעל '{removed_title}' הוסרה מהאתר.")
+                    removed_items.append(removed_title)
 
-                for key in removed_keys:
-                    item = prev_items[key]
-                    send_telegram_message(user_id, f"❌ *{item['title']}* הוסרה או אזלה מהמלאי.\n[לצפייה]({item['link']})")
+            # שמירת מצב לכל משתמש
+            all_states = load_state(STATE_FILE)
+            all_states[uid] = current_state
+            save_state(STATE_FILE, all_states)
 
-                send_telegram_message(user_id, get_coupon_text())
+            if not new_items and not removed_items and not changed_price_items:
+                send_telegram_message("🔄 כל הנעליים שנשלחו עדיין רלוונטיות.")
 
-            current_state[user_id] = user_items
-
-        browser.close()
-        save_json_file(current_state, STATE_FILE)
+            send_telegram_message(get_coupon_text())
+            browser.close()
 
 if __name__ == '__main__':
     check_shoes()
