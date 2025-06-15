@@ -3,10 +3,5 @@
     "gender": "men",
     "size": "43",
     "price": "0-300"
-  },
-  "123456789": {
-    "gender": "women",
-    "size": "799",
-    "price": "100-250"
   }
 }
