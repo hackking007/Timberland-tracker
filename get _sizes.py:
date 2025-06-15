@@ -1,0 +1,45 @@
+import requests
+from bs4 import BeautifulSoup
+import json
+
+URLS = {
+    "men": "https://www.timberland.co.il/men/footwear",
+    "women": "https://www.timberland.co.il/women",
+    "kids": "https://www.timberland.co.il/kids"
+}
+
+def extract_sizes(url):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"שגיאה בטעינת {url}")
+        return {}
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    size_section = soup.select_one("div.filter-options-item[data-attribute='size']")
+    if not size_section:
+        print("לא נמצאה רשימת מידות")
+        return {}
+
+    sizes = size_section.select("li.item")
+    size_map = {}
+    for s in sizes:
+        label = s.get_text(strip=True)
+        size_id = s.get("data-value")
+        if label and size_id:
+            size_map[label] = size_id
+    return size_map
+
+def main():
+    all_sizes = {}
+    for gender, url in URLS.items():
+        print(f"בודק מידות עבור {gender}...")
+        sizes = extract_sizes(url)
+        all_sizes[gender] = sizes
+
+    with open("size_map.json", "w", encoding="utf-8") as f:
+        json.dump(all_sizes, f, ensure_ascii=False, indent=2)
+    print("✔️ קובץ size_map.json נוצר בהצלחה.")
+
+if __name__ == "__main__":
+    main()
