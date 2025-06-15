@@ -1,15 +1,16 @@
 import os
 import json
 import logging
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
-    filters, ConversationHandler
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters, ConversationHandler
 )
 
 USER_DATA_FILE = "user_data.json"
-SELECT_CATEGORY, ENTER_SIZE, ENTER_PRICE = range(3)
+START, GENDER, SIZE, PRICE = range(4)
 
+# טען נתונים קיימים
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
         user_data = json.load(f)
@@ -21,82 +22,76 @@ def save_user_data():
         json.dump(user_data, f, ensure_ascii=False, indent=2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [['גברים', 'נשים', 'ילדים']]
-    await update.message.reply_text(
-        "👋 ברוך הבא לבוט טימברלנד!\n\n"
-        "באילו קטגוריות אתה מעוניין לקבל עדכונים? (ניתן לבחור יותר מאחת, הפרד בפסיקים)",
-        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return SELECT_CATEGORY
-
-async def category_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    categories = update.message.text.strip().replace(" ", "").lower().split(',')
+    if user_id in user_data:
+        await update.message.reply_text("🔁 כבר הגדרת העדפות. שלח /show כדי לצפות בהן או /reset כדי להתחיל מחדש.")
+        return ConversationHandler.END
+    reply_markup = ReplyKeyboardMarkup([["גברים", "נשים", "ילדים"]], one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("👟 שלום! איזה סוג נעליים אתה מחפש?", reply_markup=reply_markup)
+    return GENDER
 
-    category_map = {
-        'גברים': 'men',
-        'נשים': 'women',
-        'ילדים': 'kids'
-    }
-
-    selected = [category_map.get(cat, "") for cat in categories if category_map.get(cat)]
-    if not selected:
-        await update.message.reply_text("אנא בחר לפחות קטגוריה אחת מתוך: גברים, נשים, ילדים.")
-        return SELECT_CATEGORY
-
-    user_data[user_id] = {"categories": selected}
+async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    gender = update.message.text.strip()
+    if gender not in ["גברים", "נשים", "ילדים"]:
+        await update.message.reply_text("❗ אנא בחר אחת מהאפשרויות: גברים, נשים או ילדים.")
+        return GENDER
+    user_id = str(update.effective_user.id)
+    user_data[user_id] = {"gender": gender}
     save_user_data()
-    await update.message.reply_text("✅ מעולה! מהי המידה הרצויה שלך?", reply_markup=ReplyKeyboardRemove())
-    return ENTER_SIZE
+    await update.message.reply_text("📏 מעולה! מה המידה שלך?")
+    return SIZE
 
 async def size_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
     size = update.message.text.strip()
+    user_id = str(update.effective_user.id)
     user_data[user_id]["size"] = size
     save_user_data()
-    await update.message.reply_text("💰 נהדר! מהו טווח המחירים הרצוי? (לדוגמה: 200-300)")
-    return ENTER_PRICE
+    await update.message.reply_text("💰 מצוין! ומה טווח המחירים שתרצה? (לדוגמה: 0-300)")
+    return PRICE
 
 async def price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    price_range = update.message.text.strip()
     user_id = str(update.effective_user.id)
-    price = update.message.text.strip()
-    user_data[user_id]["price"] = price
+    user_data[user_id]["price"] = price_range
     save_user_data()
-    await update.message.reply_text("🎉 ההעדפות נשמרו! מהריצה הקרובה תקבל עדכונים מותאמים אישית.")
+    await update.message.reply_text("✅ שמרתי את ההעדפות שלך! תתחיל לקבל התראות מותאמות אישית 🎯")
     return ConversationHandler.END
 
-async def show_preferences(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    prefs = user_data.get(user_id)
-    if prefs:
-        categories = ', '.join(prefs["categories"])
-        size = prefs["size"]
-        price = prefs["price"]
+    if user_id in user_data:
+        prefs = user_data[user_id]
         await update.message.reply_text(
-            f"🔧 ההעדפות שלך:\n• קטגוריות: {categories}\n• מידה: {size}\n• טווח מחירים: {price}"
+            f"🔧 ההעדפות שלך:\n• סוג: {prefs['gender']}\n• מידה: {prefs['size']}\n• טווח מחיר: {prefs['price']}"
         )
     else:
-        await update.message.reply_text("לא הגדרת עדיין העדפות. שלח /start כדי להתחיל.")
+        await update.message.reply_text("לא הגדרת העדפות. שלח /start כדי להתחיל.")
+
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    user_data.pop(user_id, None)
+    save_user_data()
+    await update.message.reply_text("🔄 ההעדפות שלך אופסו. שלח /start כדי להתחיל מחדש.")
 
 def main():
     app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
 
-    conv_handler = ConversationHandler(
+    conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            SELECT_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, category_handler)],
-            ENTER_SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, size_handler)],
-            ENTER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_handler)],
+            GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, gender_handler)],
+            SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, size_handler)],
+            PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_handler)],
         },
-        fallbacks=[],
+        fallbacks=[]
     )
 
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler("show", show_preferences))
+    app.add_handler(conv)
+    app.add_handler(CommandHandler("show", show))
+    app.add_handler(CommandHandler("reset", reset))
 
-    print("🤖 Bot is running...")
+    logging.basicConfig(level=logging.INFO)
     app.run_polling()
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
     main()
