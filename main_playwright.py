@@ -5,9 +5,11 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-STATE_FILE = "shoes_state.json"
-USER_DATA_FILE = "user_data.json"
 
+USER_DATA_FILE = "user_data.json"
+STATE_FILE = "shoes_state.json"
+
+# שליחת הודעה
 def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
@@ -17,6 +19,7 @@ def send_telegram_message(chat_id, text):
     }
     requests.post(url, data=payload)
 
+# שליחת תמונה עם כיתוב
 def send_photo_with_caption(chat_id, image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
@@ -27,17 +30,26 @@ def send_photo_with_caption(chat_id, image_url, caption):
     }
     requests.post(url, data=payload)
 
+# טען את הגדרות המשתמש
+def load_user_data():
+    if os.path.exists(USER_DATA_FILE):
+        with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+# טען את מצב ההיסטוריה של הנעליים
 def load_previous_state():
-    try:
+    if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except FileNotFoundError:
-        return {}
+    return {}
 
+# שמור את המצב החדש
 def save_current_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
+# טקסט קופונים
 def get_coupon_text():
     return (
         "🎁 *קופונים רלוונטיים:*\n\n"
@@ -45,38 +57,47 @@ def get_coupon_text():
         "- 50 ש\"ח הנחה בקנייה מעל 300 ש\"ח | קוד: TIMBER50  \n  (מקור: FreeCoupon)"
     )
 
-def build_url(category, size, price_range):
-    base_urls = {
+# צור URL מותאם לפי העדפות
+def build_url(gender, price_range, size):
+    base = {
         "men": "https://www.timberland.co.il/men/footwear",
         "women": "https://www.timberland.co.il/women",
         "kids": "https://www.timberland.co.il/kids"
-    }
-    if category not in base_urls:
-        return None
+    }[gender]
 
-    price_range = price_range.replace(" ", "").replace("₪", "")
-    return f"{base_urls[category]}?price={price_range}&size={size}&product_list_order=low_to_high"
+    size_code = {
+        "men": "794",  # מידה 43
+        "women": "10",  # לדוגמה
+        "kids": "234"   # לדוגמה
+    }[gender]
 
-def check_user_preferences(user_id, prefs):
-    all_found_items = {}
-    new_items = []
-    removed_items = []
-    current_state = {}
+    return f"{base}?price={price_range.replace('-', '_')}&size={size_code}&product_list_order=low_to_high"
+
+# פונקציית הבדיקה הראשית
+def check_shoes():
+    user_data = load_user_data()
     previous_state = load_previous_state()
-    chat_id = user_id
+    current_state = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
-        page = context.new_page()
 
-        for category in prefs.get("categories", []):
-            url = build_url(category, prefs["size"], prefs["price"])
-            if not url:
+        for user_id, prefs in user_data.items():
+            gender = prefs.get("gender", "men")  # ברירת מחדל: גברים
+            price_range = prefs.get("price", "0-300")
+            size = prefs.get("size", "43")
+            chat_id = int(user_id)
+
+            url = build_url(gender, price_range, size)
+            page = context.new_page()
+            try:
+                page.goto(url, timeout=60000)
+            except:
+                send_telegram_message(chat_id, "⚠️ לא הצלחנו לטעון את האתר.")
                 continue
 
-            page.goto(url, timeout=60000)
-
+            # לחץ על "טען עוד"
             while True:
                 try:
                     load_more = page.query_selector("a.action.more")
@@ -91,6 +112,11 @@ def check_user_preferences(user_id, prefs):
             html = page.content()
             soup = BeautifulSoup(html, 'html.parser')
             product_cards = soup.select('div.product')
+
+            current_user_state = {}
+            previous_user_state = previous_state.get(user_id, {})
+            new_items = []
+            removed_items = []
 
             for card in product_cards:
                 link_tag = card.select_one("a")
@@ -119,45 +145,38 @@ def check_user_preferences(user_id, prefs):
                     continue
 
                 price = min(prices)
-                key = f"{user_id}_{link}"
-                current_state[key] = {
+                key = link
+                current_user_state[key] = {
                     "title": title,
                     "link": link,
                     "price": price,
                     "img_url": img_url
                 }
 
-                if key not in previous_state:
-                    caption = f'*{title}* - ₪{price}\n[צפייה במוצר]({link})'
+                # חדש או שינוי במחיר
+                if key not in previous_user_state or previous_user_state[key]["price"] != price:
+                    caption = f'*{title}* - ₪{price}\n[View Product]({link})'
                     send_photo_with_caption(chat_id, img_url or "https://via.placeholder.com/300", caption)
                     new_items.append(title)
 
-        for key in list(previous_state.keys()):
-            if key.startswith(user_id + "_") and key not in current_state:
-                removed_title = previous_state[key]["title"]
-                removed_items.append(removed_title)
-                send_telegram_message(chat_id, f"❌ הנעל '{removed_title}' כבר לא רלוונטית יותר.")
+            # נעליים שנמחקו
+            for old_key in previous_user_state:
+                if old_key not in current_user_state:
+                    removed_items.append(previous_user_state[old_key]["title"])
+                    send_telegram_message(chat_id, f"❌ הנעל '{previous_user_state[old_key]['title']}' כבר לא זמינה.")
 
-        previous_state.update(current_state)
-        save_current_state(previous_state)
+            # אם לא השתנה כלום
+            if not new_items and not removed_items:
+                send_telegram_message(chat_id, "🔄 הנעליים שנשלחו בעבר עדיין רלוונטיות.")
 
-        if not new_items and not removed_items:
-            send_telegram_message(chat_id, "🔄 אין עדכונים. כל הנעליים שנשלחו בעבר עדיין רלוונטיות.")
+            # קופונים
+            send_telegram_message(chat_id, get_coupon_text())
 
-        send_telegram_message(chat_id, get_coupon_text())
+            # שמור למצב כולל
+            current_state[user_id] = current_user_state
 
+        save_current_state(current_state)
         browser.close()
 
-def check_all_users():
-    if not os.path.exists(USER_DATA_FILE):
-        print("user_data.json לא נמצא.")
-        return
-
-    with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
-        all_users = json.load(f)
-
-    for user_id, prefs in all_users.items():
-        check_user_preferences(user_id, prefs)
-
 if __name__ == '__main__':
-    check_all_users()
+    check_shoes()
