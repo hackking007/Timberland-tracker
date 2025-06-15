@@ -1,58 +1,86 @@
 import os
 import json
 import logging
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
     filters, ConversationHandler
 )
 
-# קבצים קבועים
-USER_DATA_FILE = "user_data.json"
-START, CATEGORY, PRICE = range(3)
+# הגדרת שלבים לשיחה
+CATEGORY, SIZE, PRICE = range(3)
 
-# טען משתמשים קיימים
+# קובץ שמירה
+USER_DATA_FILE = "user_data.json"
+
+# טען נתונים קיימים אם קיימים
 if os.path.exists(USER_DATA_FILE):
     with open(USER_DATA_FILE, "r") as f:
         user_data = json.load(f)
 else:
     user_data = {}
 
-# שמירה לקובץ
 def save_user_data():
     with open(USER_DATA_FILE, "w") as f:
         json.dump(user_data, f, ensure_ascii=False, indent=2)
 
 # התחלה
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["גברים", "נשים", "ילדים"]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text("👋 שלום וברוך הבא!
-
-איזה סוג נעליים אתה מחפש? תוכל לבחור יותר מאפשרות אחת בהמשך.", reply_markup=reply_markup)
+    keyboard = [[
+        KeyboardButton("גברים"),
+        KeyboardButton("נשים"),
+        KeyboardButton("ילדים")
+    ]]
+    await update.message.reply_text(
+        "👋 ברוך הבא! באילו קטגוריות נעליים אתה מעוניין?\n(שלח הודעה עם אחת או יותר, מופרדות בפסיקים, לדוגמה: גברים, ילדים)",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    )
     return CATEGORY
 
-# קבלת קטגוריה
+# קבלת קטגוריות
 async def category_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    category = update.message.text.strip()
+    text = update.message.text.strip().replace(" ", "")
+    categories = text.lower().split(",")
+    
+    # המרה לערכים לוגיים
+    selected = []
+    for cat in categories:
+        if "גברים" in cat:
+            selected.append("men")
+        if "נשים" in cat:
+            selected.append("women")
+        if "ילדים" in cat:
+            selected.append("kids")
+    
+    if not selected:
+        await update.message.reply_text("❌ לא זיהיתי קטגוריות תקינות. נסה שוב.")
+        return CATEGORY
 
-    if user_id not in user_data:
-        user_data[user_id] = {}
-
-    user_data[user_id]["category"] = category
+    user_data[user_id] = {"categories": selected}
     save_user_data()
-    await update.message.reply_text("💰 מצוין! מהו טווח המחירים הרצוי? (לדוגמה: 100-300)")
+
+    await update.message.reply_text("✅ נרשם! עכשיו, באיזו מידה אתה מחפש?")
+    return SIZE
+
+# קבלת מידה
+async def size_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    size = update.message.text.strip()
+    user_data[user_id]["size"] = size
+    save_user_data()
+
+    await update.message.reply_text("🔢 ומה טווח המחירים שלך? (לדוגמה: 200-300)")
     return PRICE
 
-# קבלת טווח מחיר
+# קבלת טווח מחירים
 async def price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    price_range = update.message.text.strip()
-    user_data[user_id]["price"] = price_range
+    price = update.message.text.strip()
+    user_data[user_id]["price"] = price
     save_user_data()
 
-    await update.message.reply_text("✅ ההעדפות שלך נשמרו! מהריצה הבאה תקבל התראות מותאמות 🎯")
+    await update.message.reply_text("🎉 ההעדפות שלך נשמרו! מהריצה הקרובה תקבל התראות מותאמות אישית 👟")
     return ConversationHandler.END
 
 # פקודה לצפייה בהעדפות
@@ -60,35 +88,14 @@ async def show(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id in user_data:
         data = user_data[user_id]
-        category = data.get("category", "לא נבחר")
-        price = data.get("price", "לא נבחר")
-        await update.message.reply_text(f"🔧 ההעדפות שלך:\n• קטגוריה: {category}\n• טווח מחירים: {price}")
+        cat_text = ", ".join(data.get("categories", []))
+        size = data.get("size", "לא הוגדר")
+        price = data.get("price", "לא הוגדר")
+        await update.message.reply_text(f"👤 ההעדפות שלך:\n• קטגוריות: {cat_text}\n• מידה: {size}\n• טווח מחירים: {price}")
     else:
         await update.message.reply_text("לא הגדרת עדיין העדפות. שלח /start כדי להתחיל.")
 
-# פונקציה ליצירת URL מותאם
-# (נשתמש בה מאוחר יותר בתוך GitHub Actions כדי להריץ לפי ההעדפות)
-def build_url(category, price_range):
-    category_map = {
-        "גברים": "men/footwear",
-        "נשים": "women",
-        "ילדים": "kids"
-    }
-    size_map = {
-        "גברים": "794",
-        "נשים": "10",
-        "ילדים": "234"
-    }
-    if category not in category_map:
-        return None
-
-    base = "https://www.timberland.co.il/"
-    category_path = category_map[category]
-    size = size_map[category]
-    price_range = price_range.replace(" ", "").replace("₪", "")
-    return f"{base}{category_path}?price={price_range}&size={size}"
-
-# רישום הבוט
+# אתחול האפליקציה
 def main():
     app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
 
@@ -96,6 +103,7 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, category_handler)],
+            SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, size_handler)],
             PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_handler)],
         },
         fallbacks=[],
