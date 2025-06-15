@@ -5,13 +5,11 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
 STATE_FILE = "shoes_state.json"
 USER_DATA_FILE = "user_data.json"
+SIZE_MAP_FILE = "size_map.json"
 
-# שליחת הודעת טקסט
 def send_telegram_message(chat_id, text):
-    print(f"📤 שולח הודעה ל- {chat_id}")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -20,9 +18,7 @@ def send_telegram_message(chat_id, text):
     }
     requests.post(url, data=payload)
 
-# שליחת תמונה עם כיתוב
 def send_photo_with_caption(chat_id, image_url, caption):
-    print(f"🖼️ שולח תמונה ל- {chat_id}")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         "chat_id": chat_id,
@@ -32,29 +28,17 @@ def send_photo_with_caption(chat_id, image_url, caption):
     }
     requests.post(url, data=payload)
 
-# טעינת מצב קודם
-def load_previous_state():
+def load_json_file(filename):
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
+        with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
 
-# שמירת מצב נוכחי
-def save_current_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+def save_json_file(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-# טעינת העדפות משתמשים
-def load_user_data():
-    try:
-        with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print("⚠️ לא נמצא user_data.json")
-        return {}
-
-# קופונים
 def get_coupon_text():
     return (
         "🎁 *קופונים רלוונטיים:*\n\n"
@@ -62,47 +46,40 @@ def get_coupon_text():
         "- 50 ש\"ח הנחה בקנייה מעל 300 ש\"ח | קוד: TIMBER50  \n  (מקור: FreeCoupon)"
     )
 
-def build_url(gender, price_range, size):
-    price_from, price_to = price_range.split("-")
-    if gender == "men":
-        return f"https://www.timberland.co.il/men/footwear?price={price_from}_{price_to}&size=794"
-    elif gender == "women":
-        return f"https://www.timberland.co.il/women?price={price_from}_{price_to}&size=10"
-    elif gender == "kids":
-        return f"https://www.timberland.co.il/kids?price={price_from}_{price_to}&size=234"
-    return None
+def get_category_url(gender, size_id, price_range):
+    base_urls = {
+        "men": "https://www.timberland.co.il/men/footwear",
+        "women": "https://www.timberland.co.il/women",
+        "kids": "https://www.timberland.co.il/kids"
+    }
+    return f"{base_urls[gender]}?price={price_range.replace('-', '_')}&size={size_id}&product_list_order=low_to_high"
 
 def check_shoes():
-    print("▶️ התחלת ריצה")
-    user_data = load_user_data()
-    print("📂 תוכן user_data.json:", user_data)
+    users = load_json_file(USER_DATA_FILE)
+    size_map = load_json_file(SIZE_MAP_FILE)
+    state = load_json_file(STATE_FILE)
 
-    previous_state = load_previous_state()
-    current_state = {}
+    new_state = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale='he-IL')
         page = context.new_page()
 
-        for user_id, prefs in user_data.items():
-            print(f"👤 בודק את המשתמש {user_id} עם העדפות {prefs}")
-            gender = prefs.get("gender")
-            size = prefs.get("size")
-            price_range = prefs.get("price")
+        for chat_id, prefs in users.items():
+            gender = prefs["gender"]
+            size = prefs["size"]
+            price_range = prefs["price"]
 
-            url = build_url(gender, price_range, size)
-            if not url:
-                print(f"⚠️ לא נבנה URL תקין עבור {user_id}")
+            size_id = str(size_map.get(gender, {}).get(size))
+            if not size_id:
+                send_telegram_message(chat_id, f"⚠️ לא נמצא מזהה למידה {size} בקטגוריה {gender}.")
                 continue
 
-            print(f"🌐 גולש לכתובת: {url}")
-            try:
-                page.goto(url, timeout=60000)
-            except Exception as e:
-                print(f"❌ שגיאה בטעינת דף: {e}")
-                continue
+            url = get_category_url(gender, size_id, price_range)
+            page.goto(url, timeout=60000)
 
+            # טען את כל המוצרים
             while True:
                 try:
                     load_more = page.query_selector("a.action.more")
@@ -116,13 +93,10 @@ def check_shoes():
 
             html = page.content()
             soup = BeautifulSoup(html, 'html.parser')
-            product_cards = soup.select('div.product')
+            cards = soup.select('div.product')
+            found_urls = {}
 
-            user_found_items = {}
-            new_items = []
-            removed_items = []
-
-            for card in product_cards:
+            for card in cards:
                 link_tag = card.select_one("a")
                 img_tag = card.select_one("img")
                 price_tags = card.select("span.price")
@@ -138,49 +112,45 @@ def check_shoes():
                 prices = []
                 for tag in price_tags:
                     try:
-                        text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
-                        price_val = float(text)
-                        if price_val > 0:
-                            prices.append(price_val)
+                        val = float(tag.text.replace("₪", "").replace(",", "").strip())
+                        prices.append(val)
                     except:
                         continue
 
-                if not prices or min(prices) > float(price_range.split("-")[1]):
+                if not prices:
                     continue
 
                 price = min(prices)
-                key = f"{user_id}|{link}"
-                user_found_items[key] = {
+                found_urls[link] = {
                     "title": title,
                     "link": link,
                     "price": price,
                     "img_url": img_url
                 }
 
-                if key not in previous_state:
-                    caption = f'*{title}* - ₪{price}\n[לצפייה במוצר]({link})'
-                    send_photo_with_caption(user_id, img_url or "https://via.placeholder.com/300", caption)
-                    new_items.append(title)
+            # בדיקת שינויים
+            prev = state.get(chat_id, {})
+            curr = found_urls
+            new_items = [k for k in curr if k not in prev]
+            removed_items = [k for k in prev if k not in curr]
 
-            # נעליים שהוסרו
-            for key in previous_state:
-                if key.startswith(f"{user_id}|") and key not in user_found_items:
-                    removed_title = previous_state[key]["title"]
-                    send_telegram_message(user_id, f"❌ הנעל '{removed_title}' כבר לא רלוונטית")
-                    removed_items.append(removed_title)
+            for k in new_items:
+                data = curr[k]
+                caption = f"*{data['title']}* - ₪{data['price']}\n[צפייה במוצר]({data['link']})"
+                send_photo_with_caption(chat_id, data['img_url'] or "https://via.placeholder.com/300", caption)
 
-            # עדכון סטייט כולל
-            current_state.update(user_found_items)
+            for k in removed_items:
+                data = prev[k]
+                send_telegram_message(chat_id, f"❌ הנעל '{data['title']}' כבר לא זמינה בטווח המחירים או המידה שלך.")
 
             if not new_items and not removed_items:
-                send_telegram_message(user_id, "🔄 כל הנעליים שנשלחו בעבר עדיין רלוונטיות.")
-            
-            send_telegram_message(user_id, get_coupon_text())
+                send_telegram_message(chat_id, "🔁 כל הנעליים ששלחנו לך בעבר עדיין זמינות.")
 
-        save_current_state(current_state)
+            send_telegram_message(chat_id, get_coupon_text())
+            new_state[chat_id] = curr
+
         browser.close()
+        save_json_file(STATE_FILE, new_state)
 
-    print("✅ סיום ריצה")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     check_shoes()
