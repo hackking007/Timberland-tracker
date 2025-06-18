@@ -1,44 +1,32 @@
-name: Daily Timberland Shoe Tracker
+name: Run Shoe Tracker Twice Daily
 
 on:
   schedule:
-    - cron: "0 7,16 * * *"  # פעמיים ביום - 07:00 ו-16:00 לפי זמן UTC
+    - cron: "30 5 * * *"   # 08:30 Israel time
+    - cron: "30 17 * * *"  # 20:30 Israel time
   workflow_dispatch:
 
 jobs:
-  run-script:
+  run-tracker:
     runs-on: ubuntu-latest
+
     steps:
-      - name: 📥 Clone repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: '3.11'
 
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          playwright install
+          playwright install chromium
 
-      - name: 📂 Load user data artifact if exists
-        uses: actions/download-artifact@v4
-        with:
-          name: shoes-state
-          path: .
-        continue-on-error: true
-
-      - name: 🚀 Run shoe tracker script
+      - name: Run tracker script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        run: |
-          python main_playwright.py
-
-      - name: 🧠 Save shoes state
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: shoes-state
-          path: shoes_state.json
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main_playwright.py
