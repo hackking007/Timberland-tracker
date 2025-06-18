@@ -1,13 +1,14 @@
-name: Run Shoe Tracker Twice Daily
+name: Check Timberland Shoes
 
 on:
   schedule:
-    - cron: "0 8,18 * * *"
-  workflow_dispatch:
+    - cron: "0 6,15 * * *"  # פעמיים ביום - 06:00 ו-15:00 לפי זמן UTC
+  workflow_dispatch:  # מאפשר להריץ ידנית
 
 jobs:
-  run-tracker:
+  check-timberland:
     runs-on: ubuntu-latest
+
     env:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -24,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install playwright beautifulsoup4 requests lxml
           playwright install chromium
 
-      - name: Run tracker script
+      - name: Run Playwright script
         run: python main_playwright.py
