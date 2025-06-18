@@ -48,14 +48,29 @@ def save_current_state(state):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 def category_to_url(category, size, price):
-    price = price.replace("₪", "").replace(" ", "").replace("שח", "").replace("ש\"ח", "").replace("שח", "")
-    price = price.replace("-", "_").replace(",", "").replace("–", "_")
-    size_code = {"men": "794", "women": "10", "kids": "234"}.get(category, "794")
+    # מיפוי בין עברית לאנגלית
+    hebrew_to_english = {
+        "גברים": "men",
+        "נשים": "women",
+        "ילדים": "kids"
+    }
+
+    category = hebrew_to_english.get(category, category)  # אם כבר באנגלית - לא נוגעים
+
     base_urls = {
         "men": "https://www.timberland.co.il/men/footwear",
         "women": "https://www.timberland.co.il/women",
         "kids": "https://www.timberland.co.il/kids"
     }
+
+    size_map = {
+        "men": "794",    # לדוגמה: מידה 43
+        "women": "10",   # לעדכן בהתאם
+        "kids": "234"    # לעדכן בהתאם
+    }
+
+    size_code = size_map.get(category, "794")  # ברירת מחדל
+
     url = f"{base_urls[category]}?price={price}&size={size_code}&product_list_order=low_to_high"
     return url
 
