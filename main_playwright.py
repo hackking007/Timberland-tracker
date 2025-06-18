@@ -71,7 +71,7 @@ def get_coupons_from_freecoupon():
             return "❌ לא נמצאו קופונים באתר FreeCoupon כרגע."
 
         return "🎟️ *קופונים מתוך FreeCoupon:*
-
+"""
 " + "\n".join(coupons)
 
     except Exception as e:
