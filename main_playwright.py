@@ -8,16 +8,12 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 STATE_FILE = "shoes_state.json"
 USER_DATA_FILE = "user_data.json"
 
-def send_message(chat_id, text):
+def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     requests.post(url, data=payload)
 
-def send_photo(chat_id, image_url, caption):
+def send_photo_with_caption(chat_id, image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         "chat_id": chat_id,
@@ -27,80 +23,60 @@ def send_photo(chat_id, image_url, caption):
     }
     requests.post(url, data=payload)
 
-def load_json(path):
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+def get_coupon_text():
+    return (
+        "🎁 *קופונים רלוונטיים:*\n\n"
+        "- 10% הנחה בקנייה ראשונה | קוד: FIRST10  \n  (מקור: Cashyo)\n\n"
+        "- 50 ש\"ח הנחה בקנייה מעל 300 ש\"ח | קוד: TIMBER50  \n  (מקור: FreeCoupon)\n\n"
+        "- 10% הנחה בהרשמה לניוזלטר | קוד: TIMBER10  \n  (מקור: Timberland.co.il)"
+    )
 
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def load_user_data():
+    if not os.path.exists(USER_DATA_FILE):
+        return {}
+    with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-def get_coupon_text(soup):
-    external_coupons = [
-        "- 10% הנחה בקנייה ראשונה | קוד: FIRST10  \n  (מקור: Cashyo)",
-        "- 50 ש\"ח הנחה בקנייה מעל 300 ש\"ח | קוד: TIMBER50  \n  (מקור: FreeCoupon)"
-    ]
+def load_previous_state():
+    if not os.path.exists(STATE_FILE):
+        return {}
+    with open(STATE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-    internal_coupon = ""
-    try:
-        img = soup.find("img", alt=True)
-        alt = img['alt']
-        if "קופון" in alt or "הנחה" in alt:
-            internal_coupon = f"- {alt}  \n  (מקור: Timberland.co.il)"
-    except:
-        pass
+def save_current_state(state):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
-    combined = external_coupons
-    if internal_coupon:
-        combined.append(internal_coupon)
-
-    return "🎁 *קופונים רלוונטיים:*\n\n" + '\n\n'.join(combined)
-
-def build_url(gender, size_code, price_min, price_max):
-    base = "https://www.timberland.co.il"
-    if gender == "men":
-        return f"{base}/men/footwear?price={price_min}_{price_max}&size={size_code}"
-    elif gender == "women":
-        return f"{base}/women?price={price_min}_{price_max}&size={size_code}"
-    elif gender == "kids":
-        return f"{base}/kids?price={price_min}_{price_max}&size={size_code}"
-    return ""
-
-def size_code_for(gender, size):
-    if gender == "men":
-        return "794" if size == "43" else ""
-    elif gender == "women":
-        return "799" if size == "37" else ""
-    elif gender == "kids":
-        return "234"
-    return ""
+def category_to_url(category, size, price):
+    price = price.replace("₪", "").replace(" ", "").replace("שח", "").replace("ש\"ח", "").replace("שח", "")
+    price = price.replace("-", "_").replace(",", "").replace("–", "_")
+    size_code = {"men": "794", "women": "10", "kids": "234"}.get(category, "794")
+    base_urls = {
+        "men": "https://www.timberland.co.il/men/footwear",
+        "women": "https://www.timberland.co.il/women",
+        "kids": "https://www.timberland.co.il/kids"
+    }
+    url = f"{base_urls[category]}?price={price}&size={size_code}&product_list_order=low_to_high"
+    return url
 
 def check_shoes():
-    user_data = load_json(USER_DATA_FILE)
-    state_data = load_json(STATE_FILE)
-    updated_state = {}
+    user_data = load_user_data()
+    previous_state = load_previous_state()
+    current_state = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(locale="he-IL")
-        page = context.new_page()
 
         for user_id, prefs in user_data.items():
-            gender = prefs.get("gender")
-            size = prefs.get("size")
+            category = prefs.get("gender", "men")
+            size = prefs.get("size", "43")
             price = prefs.get("price", "0-300")
-            price_min, price_max = price.split("-")
-            size_code = size_code_for(gender, size)
 
-            if not size_code:
-                continue
-
-            url = build_url(gender, size_code, price_min, price_max)
+            url = category_to_url(category, size, price)
+            page = context.new_page()
             page.goto(url, timeout=60000)
 
-            # טעינת כל המוצרים
             while True:
                 try:
                     load_more = page.query_selector("a.action.more")
@@ -112,80 +88,55 @@ def check_shoes():
                 except:
                     break
 
-            html = page.content()
-            soup = BeautifulSoup(html, "html.parser")
-            product_cards = soup.select("div.product")
+            soup = BeautifulSoup(page.content(), "html.parser")
+            cards = soup.select("div.product")
 
-            user_items = {}
-            new_items = []
-            removed_items = []
-            price_changed = []
+            user_key = f"{user_id}_{category}_{size}_{price}"
+            current_state[user_key] = {}
+            new_items, removed_items = [], []
 
-            previous_user_items = state_data.get(user_id, {})
-
-            for card in product_cards:
+            for card in cards:
                 link_tag = card.select_one("a")
                 img_tag = card.select_one("img")
                 price_tags = card.select("span.price")
 
-                title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
-                link = link_tag['href'] if link_tag and link_tag.has_attr('href') else None
-                if not link:
-                    continue
+                title = img_tag.get("alt", "ללא שם").strip()
+                link = link_tag["href"]
                 if not link.startswith("http"):
                     link = "https://www.timberland.co.il" + link
 
-                img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
-
-                prices = []
-                for tag in price_tags:
-                    try:
-                        text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
-                        price_val = float(text)
-                        if price_val > 0:
-                            prices.append(price_val)
-                    except:
-                        continue
-
-                if not prices or min(prices) > float(price_max):
+                img_url = img_tag["src"]
+                prices = [
+                    float(tag.text.strip().replace("₪", "").replace(",", "").replace("\xa0", ""))
+                    for tag in price_tags if tag.text.strip()
+                ]
+                if not prices:
                     continue
-
-                price = min(prices)
+                min_price = min(prices)
                 key = link
-
-                user_items[key] = {
-                    "title": title,
-                    "link": link,
-                    "price": price,
-                    "img_url": img_url
+                current_state[user_key][key] = {
+                    "title": title, "link": link, "price": min_price, "img_url": img_url
                 }
 
-                if key not in previous_user_items:
-                    caption = f'*{title}* - ₪{price}\n[View Product]({link})'
-                    send_photo(user_id, img_url or "https://via.placeholder.com/300", caption)
+                if key not in previous_state.get(user_key, {}):
+                    caption = f'*{title}* - ₪{min_price}\n[לצפייה במוצר]({link})'
+                    send_photo_with_caption(user_id, img_url, caption)
                     new_items.append(title)
-                elif previous_user_items[key]["price"] != price:
-                    caption = f'*{title}*\nמחיר עודכן: ₪{previous_user_items[key]["price"]} ➜ ₪{price}\n[View Product]({link})'
-                    send_photo(user_id, img_url or "https://via.placeholder.com/300", caption)
-                    price_changed.append(title)
 
-            removed_keys = set(previous_user_items.keys()) - set(user_items.keys())
-            for rk in removed_keys:
-                removed_title = previous_user_items[rk]["title"]
-                send_message(user_id, f"❌ הנעל '{removed_title}' כבר לא רלוונטית יותר באתר.")
-                removed_items.append(removed_title)
+            old_items = previous_state.get(user_key, {})
+            for old_key in old_items:
+                if old_key not in current_state[user_key]:
+                    removed_title = old_items[old_key]["title"]
+                    send_telegram_message(user_id, f"❌ הנעל '{removed_title}' כבר לא זמינה באתר.")
+                    removed_items.append(removed_title)
 
-            # שליחת עדכון אם אין שינויים
-            if not new_items and not removed_items and not price_changed:
-                send_message(user_id, "✅ כל הנעליים ששלחנו בעבר עדיין רלוונטיות.")
+            if not new_items and not removed_items:
+                send_telegram_message(user_id, "🔄 כל הנעליים הקודמות עדיין זמינות במידה ובטווח המחירים שלך.")
 
-            # שליחת קופונים
-            send_message(user_id, get_coupon_text(soup))
-
-            updated_state[user_id] = user_items
+            send_telegram_message(user_id, get_coupon_text())
 
         browser.close()
-        save_json(STATE_FILE, updated_state)
+        save_current_state(current_state)
 
 if __name__ == "__main__":
     check_shoes()
