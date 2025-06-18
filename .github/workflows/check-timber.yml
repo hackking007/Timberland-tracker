@@ -1,23 +1,20 @@
-name: Run Shoe Tracker Twice Daily
+name: Run Shoe Tracker
 
 on:
   schedule:
-    - cron: "30 5 * * *"   # 08:30 Israel time
-    - cron: "30 17 * * *"  # 20:30 Israel time
+    - cron: "0 7,15 * * *"
   workflow_dispatch:
 
 jobs:
-  run-tracker:
+  run-script:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: 3.11
 
       - name: Install dependencies
         run: |
@@ -25,8 +22,8 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      - name: Run tracker script
+      - name: Run tracker
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python main_playwright.py
+        run: |
+          python main_playwright.py
