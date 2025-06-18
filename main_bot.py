@@ -1,103 +1,84 @@
 import os
 import json
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+import logging
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes,
-    filters, ConversationHandler
+    ApplicationBuilder, CommandHandler, MessageHandler, filters,
+    ContextTypes, ConversationHandler
 )
 
-# נתיבי קובץ
 USER_DATA_FILE = "user_data.json"
+START, GENDER, SIZE, PRICE = range(4)
 
-# שלבי השיחה
-CATEGORY, SIZE, PRICE = range(3)
-
-# טען מידע קיים
 if os.path.exists(USER_DATA_FILE):
-    with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+    with open(USER_DATA_FILE, "r") as f:
         user_data = json.load(f)
 else:
     user_data = {}
 
-# שמור מידע
 def save_user_data():
-    with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
+    with open(USER_DATA_FILE, "w") as f:
         json.dump(user_data, f, ensure_ascii=False, indent=2)
 
-# התחלה
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[KeyboardButton("גברים")], [KeyboardButton("נשים")], [KeyboardButton("ילדים")]]
-    await update.message.reply_text(
-        "👋 ברוך הבא! איזה סוג נעליים אתה מחפש?",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return CATEGORY
+    keyboard = [["גברים", "נשים", "ילדים"]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
+    await update.message.reply_text("👋 שלום! באיזו קטגוריה אתה מעוניין?", reply_markup=reply_markup)
+    return GENDER
 
-# קטגוריה
-async def category_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    category = update.message.text.strip().lower()
-    user_data[user_id] = {"gender": category}
+    category_map = {"גברים": "men", "נשים": "women", "ילדים": "kids"}
+    gender_input = update.message.text.strip()
+    gender = category_map.get(gender_input, "men")
+    user_data[user_id] = {"gender": gender}
     save_user_data()
-    await update.message.reply_text("📏 באיזו מידה אתה מעוניין?")
+    await update.message.reply_text("📏 מה המידה שלך?")
     return SIZE
 
-# מידה
 async def size_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     size = update.message.text.strip()
     user_data[user_id]["size"] = size
     save_user_data()
-    await update.message.reply_text("💸 מהו טווח המחירים הרצוי? (לדוגמה: 100-300)")
+    await update.message.reply_text("💰 מהו טווח המחירים? (לדוג׳: 100-300)")
     return PRICE
 
-# טווח מחירים
 async def price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    price_range = update.message.text.strip()
-    user_data[user_id]["price"] = price_range
+    price = update.message.text.strip()
+    user_data[user_id]["price"] = price
     save_user_data()
-    await update.message.reply_text("✅ תודה! מעכשיו תקבל התראות מותאמות אישית לפי העדפותיך.")
+    await update.message.reply_text("✅ מעולה! ההעדפות נשמרו 🎯 תקבל התראות החל מהריצה הבאה")
     return ConversationHandler.END
 
-# פקודה לצפייה בהעדפות
 async def show(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if user_id in user_data:
-        data = user_data[user_id]
+    prefs = user_data.get(user_id)
+    if prefs:
+        gender_map = {"men": "גברים", "women": "נשים", "kids": "ילדים"}
+        gender = gender_map.get(prefs["gender"], "לא נבחר")
         await update.message.reply_text(
-            f"🔧 ההעדפות שלך:\n• קטגוריה: {data['gender']}\n• מידה: {data['size']}\n• טווח מחירים: {data['price']}"
+            f"👤 ההעדפות שלך:\nקטגוריה: {gender}\nמידה: {prefs['size']}\nטווח מחיר: {prefs['price']}"
         )
     else:
-        await update.message.reply_text("אין העדפות שמורות. שלח /start כדי להתחיל.")
+        await update.message.reply_text("אין לך עדיין העדפות מוגדרות. שלח /start כדי להתחיל.")
 
-# איפוס משתמש
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if user_id in user_data:
-        del user_data[user_id]
-        save_user_data()
-    await update.message.reply_text("🔁 ההעדפות שלך אופסו. שלח /start כדי להתחיל מחדש.")
-
-# אתחול הבוט
 def main():
     app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
-
-    conv_handler = ConversationHandler(
+    conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, category_handler)],
+            GENDER: [MessageHandler(filters.TEXT & ~filters.COMMAND, gender_handler)],
             SIZE: [MessageHandler(filters.TEXT & ~filters.COMMAND, size_handler)],
             PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, price_handler)],
         },
         fallbacks=[]
     )
-
-    app.add_handler(conv_handler)
+    app.add_handler(conv)
     app.add_handler(CommandHandler("show", show))
-    app.add_handler(CommandHandler("reset", reset))
-
     app.run_polling()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
