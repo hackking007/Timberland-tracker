@@ -8,7 +8,7 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 STATE_FILE = "shoes_state.json"
 USER_DATA_FILE = "user_data.json"
 
-def send_telegram_message(chat_id, text):
+def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -17,7 +17,7 @@ def send_telegram_message(chat_id, text):
     }
     requests.post(url, data=payload)
 
-def send_photo_with_caption(chat_id, image_url, caption):
+def send_photo(chat_id, image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         "chat_id": chat_id,
@@ -27,85 +27,80 @@ def send_photo_with_caption(chat_id, image_url, caption):
     }
     requests.post(url, data=payload)
 
-def load_json_file(filename):
-    try:
-        with open(filename, "r", encoding="utf-8") as f:
+def load_json(path):
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except FileNotFoundError:
-        return {}
+    return {}
 
-def save_json_file(data, filename):
-    with open(filename, "w", encoding="utf-8") as f:
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def get_coupon_text():
-    return (
-        "🎁 *קופונים רלוונטיים:*\n\n"
-        "- 10% הנחה בקנייה ראשונה | קוד: FIRST10  \n  (מקור: Cashyo)\n\n"
+def get_coupon_text(soup):
+    external_coupons = [
+        "- 10% הנחה בקנייה ראשונה | קוד: FIRST10  \n  (מקור: Cashyo)",
         "- 50 ש\"ח הנחה בקנייה מעל 300 ש\"ח | קוד: TIMBER50  \n  (מקור: FreeCoupon)"
-    )
+    ]
 
-def build_url(gender, size_code, price_from, price_to):
-    base_urls = {
-        "גברים": "https://www.timberland.co.il/men/footwear",
-        "נשים": "https://www.timberland.co.il/women",
-        "ילדים": "https://www.timberland.co.il/kids",
-        "men": "https://www.timberland.co.il/men/footwear",
-        "women": "https://www.timberland.co.il/women",
-        "kids": "https://www.timberland.co.il/kids",
-    }
-    base = base_urls.get(gender, base_urls["men"])
-    return f"{base}?price={price_from}_{price_to}&product_list_order=low_to_high&size={size_code}"
+    internal_coupon = ""
+    try:
+        img = soup.find("img", alt=True)
+        alt = img['alt']
+        if "קופון" in alt or "הנחה" in alt:
+            internal_coupon = f"- {alt}  \n  (מקור: Timberland.co.il)"
+    except:
+        pass
 
-def get_size_code(size_text, gender):
-    mapping = {
-        "גברים": {
-            "43": "794",
-        },
-        "נשים": {
-            "37": "799",
-            "38": "800",
-        },
-        "ילדים": {
-            "30": "234"
-        },
-        "men": {
-            "43": "794",
-        },
-        "women": {
-            "37": "799",
-            "38": "800",
-        },
-        "kids": {
-            "30": "234"
-        }
-    }
-    return mapping.get(gender, {}).get(size_text, "794")
+    combined = external_coupons
+    if internal_coupon:
+        combined.append(internal_coupon)
+
+    return "🎁 *קופונים רלוונטיים:*\n\n" + '\n\n'.join(combined)
+
+def build_url(gender, size_code, price_min, price_max):
+    base = "https://www.timberland.co.il"
+    if gender == "men":
+        return f"{base}/men/footwear?price={price_min}_{price_max}&size={size_code}"
+    elif gender == "women":
+        return f"{base}/women?price={price_min}_{price_max}&size={size_code}"
+    elif gender == "kids":
+        return f"{base}/kids?price={price_min}_{price_max}&size={size_code}"
+    return ""
+
+def size_code_for(gender, size):
+    if gender == "men":
+        return "794" if size == "43" else ""
+    elif gender == "women":
+        return "799" if size == "37" else ""
+    elif gender == "kids":
+        return "234"
+    return ""
 
 def check_shoes():
-    user_data = load_json_file(USER_DATA_FILE)
-    all_states = load_json_file(STATE_FILE)
-    updated_states = {}
+    user_data = load_json(USER_DATA_FILE)
+    state_data = load_json(STATE_FILE)
+    updated_state = {}
 
-    for user_id, prefs in user_data.items():
-        gender = prefs.get("gender", "גברים")
-        size = prefs.get("size", "43")
-        price_range = prefs.get("price", "0-300")
-        price_from, price_to = price_range.split("-")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(locale="he-IL")
+        page = context.new_page()
 
-        size_code = get_size_code(size, gender)
-        url = build_url(gender, size_code, price_from, price_to)
-        previous_state = all_states.get(user_id, {})
-        current_state = {}
-        new_items = []
-        removed_items = []
+        for user_id, prefs in user_data.items():
+            gender = prefs.get("gender")
+            size = prefs.get("size")
+            price = prefs.get("price", "0-300")
+            price_min, price_max = price.split("-")
+            size_code = size_code_for(gender, size)
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(locale="he-IL")
-            page = context.new_page()
+            if not size_code:
+                continue
+
+            url = build_url(gender, size_code, price_min, price_max)
             page.goto(url, timeout=60000)
 
+            # טעינת כל המוצרים
             while True:
                 try:
                     load_more = page.query_selector("a.action.more")
@@ -121,6 +116,13 @@ def check_shoes():
             soup = BeautifulSoup(html, "html.parser")
             product_cards = soup.select("div.product")
 
+            user_items = {}
+            new_items = []
+            removed_items = []
+            price_changed = []
+
+            previous_user_items = state_data.get(user_id, {})
+
             for card in product_cards:
                 link_tag = card.select_one("a")
                 img_tag = card.select_one("img")
@@ -134,6 +136,7 @@ def check_shoes():
                     link = "https://www.timberland.co.il" + link
 
                 img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+
                 prices = []
                 for tag in price_tags:
                     try:
@@ -144,39 +147,45 @@ def check_shoes():
                     except:
                         continue
 
-                if not prices or min(prices) > float(price_to):
+                if not prices or min(prices) > float(price_max):
                     continue
 
                 price = min(prices)
                 key = link
-                current_state[key] = {
+
+                user_items[key] = {
                     "title": title,
                     "link": link,
                     "price": price,
                     "img_url": img_url
                 }
 
-                if key not in previous_state:
+                if key not in previous_user_items:
                     caption = f'*{title}* - ₪{price}\n[View Product]({link})'
-                    send_photo_with_caption(user_id, img_url or "https://via.placeholder.com/300", caption)
+                    send_photo(user_id, img_url or "https://via.placeholder.com/300", caption)
                     new_items.append(title)
+                elif previous_user_items[key]["price"] != price:
+                    caption = f'*{title}*\nמחיר עודכן: ₪{previous_user_items[key]["price"]} ➜ ₪{price}\n[View Product]({link})'
+                    send_photo(user_id, img_url or "https://via.placeholder.com/300", caption)
+                    price_changed.append(title)
 
-            for old_key in previous_state:
-                if old_key not in current_state:
-                    removed_title = previous_state[old_key]["title"]
-                    removed_items.append(removed_title)
-                    send_telegram_message(user_id, f"❌ הנעל '{removed_title}' כבר לא רלוונטית")
+            removed_keys = set(previous_user_items.keys()) - set(user_items.keys())
+            for rk in removed_keys:
+                removed_title = previous_user_items[rk]["title"]
+                send_message(user_id, f"❌ הנעל '{removed_title}' כבר לא רלוונטית יותר באתר.")
+                removed_items.append(removed_title)
 
-            if not new_items and not removed_items:
-                send_telegram_message(user_id, "🔄 כל הנעליים ששלחנו לך בעבר עדיין זמינות באתר.")
+            # שליחת עדכון אם אין שינויים
+            if not new_items and not removed_items and not price_changed:
+                send_message(user_id, "✅ כל הנעליים ששלחנו בעבר עדיין רלוונטיות.")
 
-            send_telegram_message(user_id, get_coupon_text())
+            # שליחת קופונים
+            send_message(user_id, get_coupon_text(soup))
 
-            browser.close()
+            updated_state[user_id] = user_items
 
-        updated_states[user_id] = current_state
-
-    save_json_file(updated_states, STATE_FILE)
+        browser.close()
+        save_json(STATE_FILE, updated_state)
 
 if __name__ == "__main__":
     check_shoes()
