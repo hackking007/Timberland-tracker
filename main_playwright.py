@@ -5,28 +5,24 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
 STATE_FILE = "shoes_state.json"
 USER_DATA_FILE = "user_data.json"
 
-# === פונקציית שליחת הודעה לטלגרם ===
-def send_telegram_message(text):
+def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     requests.post(url, data=payload)
 
-# === פונקציית שליחת תמונה עם כיתוב לטלגרם ===
-def send_photo_with_caption(image_url, caption):
+def send_photo_with_caption(chat_id, image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
-        "chat_id": CHAT_ID,
+        "chat_id": chat_id,
         "photo": image_url,
         "caption": caption,
         "parse_mode": "Markdown"
     }
     requests.post(url, data=payload)
 
-# === קריאת מצב קודם של נעליים ===
 def load_previous_state():
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -34,12 +30,10 @@ def load_previous_state():
     except FileNotFoundError:
         return {}
 
-# === שמירת מצב חדש של נעליים ===
 def save_current_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-# === טעינת העדפות משתמשים ===
 def load_user_preferences():
     try:
         with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
@@ -47,49 +41,28 @@ def load_user_preferences():
     except FileNotFoundError:
         return {}
 
-# === המרת מידה לקוד מזהה באתר ===
 def size_to_code(size):
     mapping = {
-        "43": "794", "42": "793", "41": "792", "40": "791",
-        "39": "790", "38": "789", "37": "799"
+        # Men/Women
+        "37": "799", "38": "789", "39": "790", "40": "791",
+        "41": "792", "42": "793", "43": "794", "44": "795", "45": "796",
+        # Kids (example codes - verify via site if needed)
+        "24": "235", "25": "236", "26": "237", "27": "238", "28": "239", "29": "240"
     }
     return mapping.get(size, "")
 
-# === URL דינמי לפי העדפות ===
 def category_to_url(category, size, price):
     base_urls = {
         "men": "https://www.timberland.co.il/men/footwear",
-        "women": "https://www.timberland.co.il/women",
-        "kids": "https://www.timberland.co.il/kids"
+        "women": "https://www.timberland.co.il/women/הנעלה",
+        "kids": "https://www.timberland.co.il/kids/toddlers-0-5y"
     }
     size_code = size_to_code(size)
     if not size_code or category not in base_urls:
         return None
-    return f"{base_urls[category]}?price={price}&size={size_code}&product_list_order=low_to_high"
+    price_range = price.replace("-", "_")
+    return f"{base_urls[category]}?price={price_range}&size={size_code}&product_list_order=low_to_high"
 
-# === קבלת קופונים מאתר טימברלנד ===
-def get_timberland_site_coupon():
-    try:
-        r = requests.get("https://www.timberland.co.il/")
-        soup = BeautifulSoup(r.text, "html.parser")
-        banner = soup.select_one(".top-bar .content span")
-        if banner:
-            return f"🎁 *קופון מהאתר:*\n\n{banner.text.strip()}"
-    except Exception:
-        return ""
-    return ""
-
-# === שליפת קופונים ידניים ===
-def get_static_coupons():
-    return (
-        "🎟️ *קופונים מתוך FreeCoupon:*\n"
-        "- קוד: FIRST10 – 10% הנחה לקנייה ראשונה (Cashyo)\n"
-        "- קוד: TIMBER50 – 50 ש\"ח בקנייה מעל 300 ש\"ח (CouponYashir)\n"
-        "- קוד: GROO15 – 15% הנחה באתר (Groo)\n"
-        "- קוד: PAYPEL – 20 ש\"ח בקנייה מעל 200 (Pelecard)"
-    )
-
-# === הלוגיקה הראשית ===
 def check_shoes():
     previous_state = load_previous_state()
     current_state = {}
@@ -103,13 +76,14 @@ def check_shoes():
         category = prefs.get("gender", "men").lower()
         size = prefs.get("size", "43")
         price = prefs.get("price", "10-304").replace("-", "_")
+        chat_id = user_id
 
         url = category_to_url(category, size, price)
         if not url:
-            send_telegram_message("❌ לא הצלחנו לבנות URL למשתמש.")
+            send_telegram_message(chat_id, "❌ לא הצלחנו לבנות קישור חיפוש.")
             continue
 
-        print(f"🔍 בודק: {url}")
+        print(f"🔍 בודק עבור {user_id}: {url}")
         new_items = []
         removed_items = []
         found = 0
@@ -169,27 +143,22 @@ def check_shoes():
 
                 if key not in previous_state:
                     caption = f"*{title}* - ₪{price_val}\n[לינק למוצר]({link})"
-                    send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
+                    send_photo_with_caption(chat_id, img_url or "https://via.placeholder.com/300", caption)
                     new_items.append(title)
                 found += 1
 
             for old_key in list(previous_state.keys()):
                 if old_key.startswith(user_id) and old_key not in current_state:
                     removed_title = previous_state[old_key]["title"]
-                    send_telegram_message(f"❌ הנעל '{removed_title}' כבר לא זמינה.")
+                    send_telegram_message(chat_id, f"❌ הנעל '{removed_title}' כבר לא זמינה.")
                     removed_items.append(removed_title)
 
             browser.close()
 
         if not new_items and not removed_items:
-            send_telegram_message("✅ כל הנעליים שנשלחו בעבר עדיין רלוונטיות באתר.")
+            send_telegram_message(chat_id, "✅ כל הנעליים שנשלחו בעבר עדיין רלוונטיות באתר.")
         else:
-            send_telegram_message("🎯 בדיקה הסתיימה - עודכנת בהצלחה.")
-
-        timberland_coupon = get_timberland_site_coupon()
-        static_coupons = get_static_coupons()
-        full_coupon_text = f"{timberland_coupon}\n\n{static_coupons}" if timberland_coupon else static_coupons
-        send_telegram_message(full_coupon_text)
+            send_telegram_message(chat_id, "🎯 הבדיקה הסתיימה – קיבלת את מה שביקשת!")
 
     save_current_state(current_state)
 
