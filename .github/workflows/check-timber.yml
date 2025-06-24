@@ -42,3 +42,4 @@ jobs:
           else
             git commit -m "Update user_data.json via bot"
             git push https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+          fi
