@@ -5,18 +5,19 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
 STATE_FILE = "shoes_state.json"
 USER_DATA_FILE = "user_data.json"
 
-def send_telegram_message(chat_id, text):
+def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     requests.post(url, data=payload)
 
-def send_photo_with_caption(chat_id, image_url, caption):
+def send_photo_with_caption(image_url, caption):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
-        "chat_id": chat_id,
+        "chat_id": CHAT_ID,
         "photo": image_url,
         "caption": caption,
         "parse_mode": "Markdown"
@@ -43,25 +44,21 @@ def load_user_preferences():
 
 def size_to_code(size):
     mapping = {
-        # Men/Women
-        "37": "799", "38": "789", "39": "790", "40": "791",
-        "41": "792", "42": "793", "43": "794", "44": "795", "45": "796",
-        # Kids (example codes - verify via site if needed)
-        "24": "235", "25": "236", "26": "237", "27": "238", "28": "239", "29": "240"
+        "43": "794", "42": "793", "41": "792", "40": "791",
+        "39": "790", "38": "789", "37": "799"
     }
     return mapping.get(size, "")
 
 def category_to_url(category, size, price):
     base_urls = {
         "men": "https://www.timberland.co.il/men/footwear",
-        "women": "https://www.timberland.co.il/women/הנעלה",
+        "women": "https://www.timberland.co.il/women/%D7%94%D7%A0%D7%A2%D7%9C%D7%94",
         "kids": "https://www.timberland.co.il/kids/toddlers-0-5y"
     }
     size_code = size_to_code(size)
     if not size_code or category not in base_urls:
         return None
-    price_range = price.replace("-", "_")
-    return f"{base_urls[category]}?price={price_range}&size={size_code}&product_list_order=low_to_high"
+    return f"{base_urls[category]}?price={price.replace('-', '_')}&size={size_code}&product_list_order=low_to_high"
 
 def check_shoes():
     previous_state = load_previous_state()
@@ -69,24 +66,24 @@ def check_shoes():
     user_data = load_user_preferences()
 
     if not user_data:
-        print("⚠️ אין משתמשים רשומים.")
+        send_telegram_message("⚠️ אין משתמשים רשומים.")
         return
 
     for user_id, prefs in user_data.items():
-        category = prefs.get("gender", "men").lower()
+        category = prefs.get("gender", "men")
         size = prefs.get("size", "43")
-        price = prefs.get("price", "10-304").replace("-", "_")
-        chat_id = user_id
+        price = prefs.get("price", "0-300")
 
         url = category_to_url(category, size, price)
-        if not url:
-            send_telegram_message(chat_id, "❌ לא הצלחנו לבנות קישור חיפוש.")
-            continue
 
-        print(f"🔍 בודק עבור {user_id}: {url}")
-        new_items = []
-        removed_items = []
-        found = 0
+        # שליחת URL לבדיקה
+        debug_msg = f"🔍 *בודק למשתמש:* `{user_id}`\nקטגוריה: {category} | מידה: {size} | טווח: {price}\n\n{url}"
+        send_telegram_message(debug_msg)
+        print(debug_msg)
+
+        if not url:
+            send_telegram_message(f"❌ שגיאה ב-URL למשתמש `{user_id}`")
+            continue
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -143,22 +140,9 @@ def check_shoes():
 
                 if key not in previous_state:
                     caption = f"*{title}* - ₪{price_val}\n[לינק למוצר]({link})"
-                    send_photo_with_caption(chat_id, img_url or "https://via.placeholder.com/300", caption)
-                    new_items.append(title)
-                found += 1
-
-            for old_key in list(previous_state.keys()):
-                if old_key.startswith(user_id) and old_key not in current_state:
-                    removed_title = previous_state[old_key]["title"]
-                    send_telegram_message(chat_id, f"❌ הנעל '{removed_title}' כבר לא זמינה.")
-                    removed_items.append(removed_title)
+                    send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
 
             browser.close()
-
-        if not new_items and not removed_items:
-            send_telegram_message(chat_id, "✅ כל הנעליים שנשלחו בעבר עדיין רלוונטיות באתר.")
-        else:
-            send_telegram_message(chat_id, "🎯 הבדיקה הסתיימה – קיבלת את מה שביקשת!")
 
     save_current_state(current_state)
 
