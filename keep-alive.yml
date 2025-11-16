@@ -1,0 +1,15 @@
+name: Repository Keep Alive
+
+on:
+  schedule:
+    # Heartbeat: runs once a week (you can change the time if you want)
+    - cron: "0 6 * * MON"
+  workflow_dispatch:  # lets you run it manually if needed
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Heartbeat ping
+        run: echo "Keeping repository active at $(date)"
