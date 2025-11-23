@@ -94,7 +94,6 @@ def category_to_url(category: str, size: str, price: str) -> str | None:
     if not size_code or category not in base_urls:
         return None
 
-    # באתר טווח המחיר נכתב כ-0_300 ולא 0-300
     price_param = price.replace("-", "_")
 
     return (
@@ -125,7 +124,8 @@ def check_shoes() -> None:
     """
     סורק לכל המשתמשים:
     - בונה URL לפי ההעדפות
-    - טוען את כל המוצרים בעמוד (כולל "Load more")
+    - טוען את העמוד (עם ניסיון להיראות כמו משתמש אמיתי)
+    - לוחץ על "Load more" אם קיים
     - לכל מוצר שנמצא – שולח תמונה + מחיר + לינק
     - אם לא נמצאו מוצרים → שולח screenshot כדי שנראה מה קורה
     - בסוף שולח הודעת סיכום.
@@ -160,16 +160,40 @@ def check_shoes() -> None:
             continue
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(locale="he-IL")
+            # ⇩⇩ הגדרות דפדפן "אמיתי" יותר ⇩⇩
+            browser = p.chromium.launch(
+                headless=False,  # מנסה להימנע מזיהוי אוטומציה
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+
+            context = browser.new_context(
+                locale="he-IL",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+            )
+
             page = context.new_page()
+
+            # מסתיר את navigator.webdriver
+            page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
+            )
+
             page.goto(url, timeout=60000)
 
             # מנסה לסגור פופאפ אם קיים
             close_popups(page)
             page.wait_for_timeout(1500)
 
-            # לוחץ על "Load more" אם קיים (כמו בקוד המקורי)
+            # לוחץ על "Load more" אם קיים (כמו בקוד המקורי שלך)
             while True:
                 try:
                     load_more = page.query_selector("a.action.more")
@@ -184,7 +208,7 @@ def check_shoes() -> None:
             html = page.content()
             soup = BeautifulSoup(html, "html.parser")
 
-            # הסלקטור המקורי שעבד + fallback
+            # הסלקטור המקורי + fallback
             product_cards = soup.select("div.product")
             if not product_cards:
                 product_cards = soup.select("li.item.product.product-item")
