@@ -120,11 +120,36 @@ def close_popups(page) -> None:
             continue
 
 
+def human_like_actions(page) -> None:
+    """
+    קצת "התנהגות אנושית":
+    תזמונים, תנועת עכבר, גלילה, PageDown.
+    המטרה היא להיראות פחות כמו בוט.
+    """
+    try:
+        page.wait_for_timeout(1000)
+        page.mouse.move(100, 200)
+        page.wait_for_timeout(300)
+        page.mouse.move(400, 500)
+        page.wait_for_timeout(300)
+        page.mouse.move(800, 600)
+        page.wait_for_timeout(300)
+
+        # גלילה למטה
+        page.mouse.wheel(0, 600)
+        page.wait_for_timeout(500)
+        page.keyboard.press("PageDown")
+        page.wait_for_timeout(500)
+    except Exception:
+        pass
+
+
 def check_shoes() -> None:
     """
     סורק לכל המשתמשים:
     - בונה URL לפי ההעדפות
     - טוען את העמוד (עם ניסיון להיראות כמו משתמש אמיתי)
+    - מנסה לסגור פופאפ
     - לוחץ על "Load more" אם קיים
     - לכל מוצר שנמצא – שולח תמונה + מחיר + לינק
     - אם לא נמצאו מוצרים → שולח screenshot כדי שנראה מה קורה
@@ -160,9 +185,9 @@ def check_shoes() -> None:
             continue
 
         with sync_playwright() as p:
-            # ⇩⇩ הגדרות דפדפן "אמיתי" יותר ⇩⇩
+            # דפדפן headless אבל "מתחזים" לכרום רגיל
             browser = p.chromium.launch(
-                headless=False,  # מנסה להימנע מזיהוי אוטומציה
+                headless=True,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -178,6 +203,7 @@ def check_shoes() -> None:
                     "Chrome/120.0.0.0 Safari/537.36"
                 ),
                 viewport={"width": 1280, "height": 800},
+                java_script_enabled=True,
             )
 
             page = context.new_page()
@@ -187,9 +213,9 @@ def check_shoes() -> None:
                 "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
             )
 
-            page.goto(url, timeout=60000)
+            page.goto(url, wait_until="networkidle", timeout=60000)
 
-            # מנסה לסגור פופאפ אם קיים
+            human_like_actions(page)
             close_popups(page)
             page.wait_for_timeout(1500)
 
@@ -199,7 +225,7 @@ def check_shoes() -> None:
                     load_more = page.query_selector("a.action.more")
                     if load_more:
                         load_more.click()
-                        page.wait_for_timeout(1500)
+                        page.wait_for_timeout(1200)
                     else:
                         break
                 except Exception:
