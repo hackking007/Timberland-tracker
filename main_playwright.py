@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
@@ -17,11 +18,7 @@ def send_telegram_message(text: str) -> None:
     שולח הודעת טקסט רגילה לטלגרם.
     """
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown",
-    }
+    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     requests.post(url, data=payload)
 
 
@@ -111,13 +108,94 @@ def category_to_url(category: str, size: str, price: str) -> str | None:
     )
 
 
+def extract_products_from_html(soup: BeautifulSoup) -> list[dict]:
+    """
+    במקום להסתמך על class ספציפי (שמשתנה כל הזמן),
+    אנחנו מאתרים מוצרים לפי:
+    - לינקים ל-/men/footwear/ (או women/kids)
+    - טקסט 'מחיר מוצר XXX ₪' שנמצא באותו בלוק.
+    מחזיר רשימת מוצרים בפורמט:
+    {title, link, price, img_url}
+    """
+    products: list[dict] = []
+
+    # כל הלינקים שיכולים להיות מוצרים
+    candidate_links = soup.select(
+        "a[href*='/men/footwear/'], a[href*='/women/'], a[href*='/kids/']"
+    )
+
+    seen_links: set[str] = set()
+
+    for a in candidate_links:
+        href = a.get("href")
+        if not href:
+            continue
+
+        # מסדרים לינק מלא
+        if not href.startswith("http"):
+            href_full = "https://www.timberland.co.il" + href
+        else:
+            href_full = href
+
+        # אם כבר טיפלנו בלינק הזה – דלג
+        if href_full in seen_links:
+            continue
+
+        title = a.get_text(strip=True)
+        if not title:
+            # אם אין טקסט, אולי זה לינק של תמונה – לא חובה, נמשיך
+            continue
+
+        # עולים קצת למעלה בהיררכיה כדי לתפוס את כל הבלוק של המוצר
+        container = a
+        for _ in range(4):  # עד 4 רמות למעלה
+            if container.parent:
+                container = container.parent
+            else:
+                break
+
+        block_text = container.get_text(" ", strip=True)
+
+        # מחפשים "מחיר מוצר XXX"
+        m = re.search(r"מחיר מוצר\s*([\d\.]+)", block_text)
+        if not m:
+            # כלומר זה כנראה לינק בתפריט/פילטר, לא מוצר
+            continue
+
+        try:
+            price_val = float(m.group(1))
+        except ValueError:
+            continue
+
+        # חיפוש תמונה באזור הבלוק
+        img_tag = container.find("img")
+        img_url = None
+        if img_tag and img_tag.get("src"):
+            img_url = img_tag["src"]
+            if not img_url.startswith("http"):
+                img_url = "https://www.timberland.co.il" + img_url
+
+        products.append(
+            {
+                "title": title,
+                "link": href_full,
+                "price": price_val,
+                "img_url": img_url,
+            }
+        )
+        seen_links.add(href_full)
+
+    return products
+
+
 def check_shoes() -> None:
     """
     סורק לכל המשתמשים:
     - בונה URL לפי ההעדפות
-    - טוען את כל המוצרים בעמוד (כולל לחיצה על "Load more" אם קיים)
-    - לכל מוצר שנמצא – שולח תמונה + מחיר + לינק
-    - בסוף שולח הודעת סיכום כמה מוצרים נשלחו
+    - טוען את הדף (אין הסתמכות על div.product בכלל)
+    - מנתח את ה-HTML לפי 'מחיר מוצר XXX' ולינקים של המוצרים
+    - שולח *כל* מוצר שנמצא בתור תמונה+טקסט
+    - בסוף שולח הודעת סיכום
     """
     previous_state = load_previous_state()  # לשימוש עתידי
     current_state: dict[str, dict] = {}
@@ -153,84 +231,22 @@ def check_shoes() -> None:
             context = browser.new_context(locale="he-IL")
             page = context.new_page()
             page.goto(url, timeout=60000)
-
-            # לוחץ על "Load more" אם קיים (כמו שהיה בקוד המקורי שלך)
-            while True:
-                try:
-                    load_more = page.query_selector("a.action.more")
-                    if load_more:
-                        load_more.click()
-                        page.wait_for_timeout(1500)
-                    else:
-                        break
-                except Exception:
-                    break
+            page.wait_for_timeout(2000)  # נותן לדף להיטען
 
             soup = BeautifulSoup(page.content(), "html.parser")
+            products = extract_products_from_html(soup)
 
-            # זה היה הסלקטור שעבד לך בעבר
-            product_cards = soup.select("div.product")
-            print(f"➡️ נמצאו {len(product_cards)} כרטיסי מוצרים עבור המשתמש {user_id}")
+            print(f"➡️ נמצאו {len(products)} מוצרים גולמיים עבור המשתמש {user_id}")
 
-            for card in product_cards:
-                link_tag = card.select_one("a")
-                img_tag = card.select_one("img")
-                price_tags = card.select("span.price")
+            for prod in products:
+                title = prod["title"]
+                link = prod["link"]
+                price_val = prod["price"]
+                img_url = prod["img_url"]
 
-                # שם המוצר
-                title = (
-                    img_tag["alt"].strip()
-                    if img_tag and img_tag.has_attr("alt")
-                    else "ללא שם"
-                )
-
-                # לינק למוצר
-                link = (
-                    link_tag["href"]
-                    if link_tag and link_tag.has_attr("href")
-                    else None
-                )
-                if not link:
-                    continue
-                if not link.startswith("http"):
-                    link = "https://www.timberland.co.il" + link
-
-                # תמונה
-                img_url = (
-                    img_tag["src"] if img_tag and img_tag.has_attr("src") else None
-                )
-
-                # מחירים – לוקחים את המינימום
-                prices: list[float] = []
-                for tag in price_tags:
-                    try:
-                        text = (
-                            tag.text.strip()
-                            .replace("\xa0", "")
-                            .replace("₪", "")
-                            .replace(",", "")
-                        )
-                        price_val = float(text)
-                        if price_val > 0:
-                            prices.append(price_val)
-                    except Exception:
-                        continue
-
-                if not prices:
-                    continue
-
-                price_val = min(prices)
-
-                # שומרים מצב למעקב עתידי
                 key = f"{user_id}_{link}"
-                current_state[key] = {
-                    "title": title,
-                    "link": link,
-                    "price": price_val,
-                    "img_url": img_url,
-                }
+                current_state[key] = prod
 
-                # ✨ שולחים *כל* מוצר בכל ריצה
                 caption = f"*{title}* - ₪{price_val}\n[לינק למוצר]({link})"
                 send_photo_with_caption(
                     img_url or "https://via.placeholder.com/300", caption
@@ -239,10 +255,8 @@ def check_shoes() -> None:
 
             browser.close()
 
-    # שומרים מצב נוכחי (שימושי אם תרצה בהמשך לזהות שינויים)
     save_current_state(current_state)
 
-    # הודעת סיכום
     if total_items_sent == 0:
         summary = "ℹ️ הבוט רץ בהצלחה — לא נמצאו מוצרים בטווח ההגדרות."
     else:
