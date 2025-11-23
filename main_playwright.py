@@ -1,11 +1,10 @@
 import os
 import json
-import re
 import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-# קורא את הטוקן וה-CHAT ID מה־ENV (מוגדרים ב-GitHub Secrets)
+# טוקן וצ'אט מה-ENV (מוגדרים ב-GitHub Secrets)
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
@@ -14,18 +13,14 @@ USER_DATA_FILE = "user_data.json"
 
 
 def send_telegram_message(text: str) -> None:
-    """
-    שולח הודעת טקסט רגילה לטלגרם.
-    """
+    """שולח הודעת טקסט לטלגרם."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     requests.post(url, data=payload)
 
 
 def send_photo_with_caption(image_url: str, caption: str) -> None:
-    """
-    שולח תמונה + כיתוב (caption) לטלגרם.
-    """
+    """שולח תמונה לפי URL + כיתוב."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     payload = {
         "chat_id": CHAT_ID,
@@ -36,11 +31,17 @@ def send_photo_with_caption(image_url: str, caption: str) -> None:
     requests.post(url, data=payload)
 
 
+def send_local_photo(path: str, caption: str) -> None:
+    """שולח קובץ תמונה מקומי (למשל screenshot) לטלגרם."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    with open(path, "rb") as f:
+        files = {"photo": f}
+        data = {"chat_id": CHAT_ID, "caption": caption}
+        requests.post(url, data=data, files=files)
+
+
 def load_previous_state():
-    """
-    טוען מצב קודם מקובץ shoes_state.json.
-    (כרגע לא משתמשים בזה לסינון, רק לשמירה לעתיד.)
-    """
+    """טוען מצב קודם מקובץ shoes_state.json (לשימוש עתידי)."""
     try:
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -49,17 +50,13 @@ def load_previous_state():
 
 
 def save_current_state(state: dict) -> None:
-    """
-    שומר מצב נוכחי לקובץ shoes_state.json.
-    """
+    """שומר מצב נוכחי לקובץ shoes_state.json."""
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
 def load_user_preferences():
-    """
-    טוען את העדפות המשתמשים מקובץ user_data.json.
-    """
+    """טוען את העדפות המשתמשים מקובץ user_data.json."""
     try:
         with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -68,9 +65,7 @@ def load_user_preferences():
 
 
 def size_to_code(size: str) -> str:
-    """
-    ממיר מידה (למשל '43') לקוד המידה באתר טימברלנד.
-    """
+    """ממיר מידה (למשל '43') לקוד המידה באתר טימברלנד."""
     mapping = {
         "43": "794",
         "42": "793",
@@ -87,7 +82,7 @@ def category_to_url(category: str, size: str, price: str) -> str | None:
     """
     בונה URL לפי קטגוריה, מידה וטווח מחיר.
     לדוגמה:
-    https://www.timberland.co.il/men/footwear?price=10_299&size=794
+    https://www.timberland.co.il/men/footwear?price=0_300&size=794
     """
     base_urls = {
         "men": "https://www.timberland.co.il/men/footwear",
@@ -108,96 +103,34 @@ def category_to_url(category: str, size: str, price: str) -> str | None:
     )
 
 
-def extract_products_from_html(soup: BeautifulSoup) -> list[dict]:
-    """
-    במקום להסתמך על class ספציפי (שמשתנה כל הזמן),
-    אנחנו מאתרים מוצרים לפי:
-    - לינקים ל-/men/footwear/ (או women/kids)
-    - טקסט 'מחיר מוצר XXX ₪' שנמצא באותו בלוק.
-    מחזיר רשימת מוצרים בפורמט:
-    {title, link, price, img_url}
-    """
-    products: list[dict] = []
-
-    # כל הלינקים שיכולים להיות מוצרים
-    candidate_links = soup.select(
-        "a[href*='/men/footwear/'], a[href*='/women/'], a[href*='/kids/']"
-    )
-
-    seen_links: set[str] = set()
-
-    for a in candidate_links:
-        href = a.get("href")
-        if not href:
-            continue
-
-        # מסדרים לינק מלא
-        if not href.startswith("http"):
-            href_full = "https://www.timberland.co.il" + href
-        else:
-            href_full = href
-
-        # אם כבר טיפלנו בלינק הזה – דלג
-        if href_full in seen_links:
-            continue
-
-        title = a.get_text(strip=True)
-        if not title:
-            # אם אין טקסט, אולי זה לינק של תמונה – לא חובה, נמשיך
-            continue
-
-        # עולים קצת למעלה בהיררכיה כדי לתפוס את כל הבלוק של המוצר
-        container = a
-        for _ in range(4):  # עד 4 רמות למעלה
-            if container.parent:
-                container = container.parent
-            else:
-                break
-
-        block_text = container.get_text(" ", strip=True)
-
-        # מחפשים "מחיר מוצר XXX"
-        m = re.search(r"מחיר מוצר\s*([\d\.]+)", block_text)
-        if not m:
-            # כלומר זה כנראה לינק בתפריט/פילטר, לא מוצר
-            continue
-
+def close_popups(page) -> None:
+    """מנסה לסגור פופאפים (Black Friday / מבצעים) אם קיימים."""
+    selectors = [
+        "button.action-close",
+        "div.modal-popup .action-close",
+        "button[aria-label='Close']",
+        ".popup .close",
+    ]
+    for sel in selectors:
         try:
-            price_val = float(m.group(1))
-        except ValueError:
+            el = page.query_selector(sel)
+            if el:
+                el.click()
+                page.wait_for_timeout(500)
+        except Exception:
             continue
-
-        # חיפוש תמונה באזור הבלוק
-        img_tag = container.find("img")
-        img_url = None
-        if img_tag and img_tag.get("src"):
-            img_url = img_tag["src"]
-            if not img_url.startswith("http"):
-                img_url = "https://www.timberland.co.il" + img_url
-
-        products.append(
-            {
-                "title": title,
-                "link": href_full,
-                "price": price_val,
-                "img_url": img_url,
-            }
-        )
-        seen_links.add(href_full)
-
-    return products
 
 
 def check_shoes() -> None:
     """
     סורק לכל המשתמשים:
     - בונה URL לפי ההעדפות
-    - טוען את הדף (אין הסתמכות על div.product בכלל)
-    - מנתח את ה-HTML לפי 'מחיר מוצר XXX' ולינקים של המוצרים
-    - שולח *כל* מוצר שנמצא בתור תמונה+טקסט
-    - בסוף שולח הודעת סיכום
+    - טוען את כל המוצרים בעמוד (כולל "Load more")
+    - לכל מוצר שנמצא – שולח תמונה + מחיר + לינק
+    - אם לא נמצאו מוצרים → שולח screenshot כדי שנראה מה קורה
+    - בסוף שולח הודעת סיכום.
     """
-    previous_state = load_previous_state()  # לשימוש עתידי
+    previous_state = load_previous_state()
     current_state: dict[str, dict] = {}
     user_data = load_user_preferences()
 
@@ -231,21 +164,101 @@ def check_shoes() -> None:
             context = browser.new_context(locale="he-IL")
             page = context.new_page()
             page.goto(url, timeout=60000)
-            page.wait_for_timeout(2000)  # נותן לדף להיטען
 
-            soup = BeautifulSoup(page.content(), "html.parser")
-            products = extract_products_from_html(soup)
+            # מנסה לסגור פופאפ אם קיים
+            close_popups(page)
+            page.wait_for_timeout(1500)
 
-            print(f"➡️ נמצאו {len(products)} מוצרים גולמיים עבור המשתמש {user_id}")
+            # לוחץ על "Load more" אם קיים (כמו בקוד המקורי)
+            while True:
+                try:
+                    load_more = page.query_selector("a.action.more")
+                    if load_more:
+                        load_more.click()
+                        page.wait_for_timeout(1500)
+                    else:
+                        break
+                except Exception:
+                    break
 
-            for prod in products:
-                title = prod["title"]
-                link = prod["link"]
-                price_val = prod["price"]
-                img_url = prod["img_url"]
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
+
+            # הסלקטור המקורי שעבד + fallback
+            product_cards = soup.select("div.product")
+            if not product_cards:
+                product_cards = soup.select("li.item.product.product-item")
+
+            print(
+                f"➡️ נמצאו {len(product_cards)} כרטיסי מוצרים עבור המשתמש {user_id}"
+            )
+
+            if not product_cards:
+                # אין מוצרים – נצלם Screenshot ונשלח לטלגרם כדי לראות מה Playwright רואה
+                screenshot_path = f"debug_{user_id}.png"
+                try:
+                    page.screenshot(path=screenshot_path, full_page=True)
+                    send_local_photo(
+                        screenshot_path,
+                        "🖼 Screenshot Debug – לא נמצאו מוצרים, כך הדף נראה ל־Playwright.",
+                    )
+                except Exception as e:
+                    print(f"Failed to take/send screenshot: {e}")
+                browser.close()
+                continue
+
+            for card in product_cards:
+                link_tag = card.select_one("a")
+                img_tag = card.select_one("img")
+                price_tags = card.select("span.price")
+
+                title = (
+                    img_tag["alt"].strip()
+                    if img_tag and img_tag.has_attr("alt")
+                    else "ללא שם"
+                )
+
+                link = (
+                    link_tag["href"]
+                    if link_tag and link_tag.has_attr("href")
+                    else None
+                )
+                if not link:
+                    continue
+                if not link.startswith("http"):
+                    link = "https://www.timberland.co.il" + link
+
+                img_url = (
+                    img_tag["src"] if img_tag and img_tag.has_attr("src") else None
+                )
+
+                prices: list[float] = []
+                for tag in price_tags:
+                    try:
+                        text = (
+                            tag.text.strip()
+                            .replace("\xa0", "")
+                            .replace("₪", "")
+                            .replace(",", "")
+                        )
+                        price_val = float(text)
+                        if price_val > 0:
+                            prices.append(price_val)
+                    except Exception:
+                        continue
+
+                if not prices:
+                    continue
+
+                price_val = min(prices)
 
                 key = f"{user_id}_{link}"
-                current_state[key] = prod
+                current_state[key] = {
+                    "title": title,
+                    "link": link,
+                    "price": price_val,
+                    "img_url": img_url,
+                }
 
                 caption = f"*{title}* - ₪{price_val}\n[לינק למוצר]({link})"
                 send_photo_with_caption(
