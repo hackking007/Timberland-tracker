@@ -124,30 +124,60 @@ def check_shoes():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
             
-            # Try multiple selectors for products
-            product_cards = (soup.select('div.product') or 
+            # Try multiple selectors for products based on Magento structure
+            product_cards = (soup.select('li.item.product.product-item') or 
                            soup.select('.product-item') or 
-                           soup.select('.item.product') or
-                           soup.select('[class*="product"]'))
+                           soup.select('li.product-item') or
+                           soup.select('.products .product') or
+                           soup.select('ol.products li') or
+                           soup.select('.product-items li'))
             
             # Debug info
             page_title = soup.select_one('title')
             debug_info = f"Page title: {page_title.text if page_title else 'No title'}\nFound {len(product_cards)} products"
             print(debug_info)
             
+            # Additional debug - check for common Magento selectors
+            all_elements = soup.select('li')
+            product_related = [el for el in all_elements if 'product' in str(el.get('class', []))]
+            
+            debug_info += f"\nAll li elements: {len(all_elements)}\nProduct-related li: {len(product_related)}"
+            
             if not product_cards:
-                screenshot_path = f"debug_{user_id}.png"
-                page.screenshot(path=screenshot_path, full_page=True)
-                send_local_photo(screenshot_path, f"📸 *Debug Screenshot:* לא נמצאו מוצרים\n{debug_info}")
-                browser.close()
-                continue
+                # Try alternative selectors
+                product_cards = soup.select('li[class*="product"]')
+                if not product_cards:
+                    screenshot_path = f"debug_{user_id}.png"
+                    page.screenshot(path=screenshot_path, full_page=True)
+                    send_local_photo(screenshot_path, f"📸 *Debug Screenshot:* לא נמצאו מוצרים\n{debug_info}")
+                    browser.close()
+                    continue
 
             for card in product_cards:
-                link_tag = card.select_one("a")
-                img_tag = card.select_one("img")
-                price_tags = card.select("span.price") or card.select(".price")
+                # Look for product link (usually wraps the image)
+                link_tag = card.select_one("a.product-item-link") or card.select_one("a")
+                
+                # Look for product image
+                img_tag = (card.select_one(".product-image-main img") or 
+                          card.select_one(".product-item-photo img") or
+                          card.select_one("img"))
+                
+                # Look for price in various locations
+                price_tags = (card.select(".price-box .price") or
+                             card.select(".regular-price .price") or 
+                             card.select("span.price") or 
+                             card.select(".price"))
 
-                title = img_tag.get('alt', 'ללא שם').strip() if img_tag else "ללא שם"
+                # Get title from multiple sources
+                title = ""
+                if img_tag and img_tag.get('alt'):
+                    title = img_tag.get('alt').strip()
+                else:
+                    title_tag = (card.select_one('.product-item-name a') or 
+                                card.select_one('.product-name a') or
+                                card.select_one('h3 a') or
+                                card.select_one('h2 a'))
+                    title = title_tag.text.strip() if title_tag else "ללא שם"
                 link = link_tag.get('href') if link_tag else None
                 
                 if not link:
