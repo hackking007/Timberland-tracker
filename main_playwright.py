@@ -52,8 +52,14 @@ def check_shoes():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
-            args=['--no-sandbox', '--disable-blink-features=AutomationControlled']
+            headless=False,  # Try non-headless to bypass CloudFlare
+            args=[
+                '--no-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--start-maximized'
+            ]
         )
         context = browser.new_context(
             locale='he-IL',
@@ -75,39 +81,44 @@ def check_shoes():
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined,
             });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['he-IL', 'he', 'en-US', 'en'],
+            });
         """)
         
         try:
             page.goto(url, timeout=60000)
             page.wait_for_load_state('domcontentloaded')
             
-            # Wait for CloudFlare/loading to finish
-            page.wait_for_timeout(5000)
+            # Wait for CloudFlare/loading to finish - much longer wait
+            page.wait_for_timeout(10000)
             
-            # Check if still on loading page
-            current_title = page.title()
-            if 'רק רגע' in current_title or 'Just a moment' in current_title:
-                page.wait_for_timeout(10000)  # Wait longer for CloudFlare
+            # Check multiple times for CloudFlare bypass
+            for attempt in range(5):
+                current_title = page.title()
+                if 'רק רגע' not in current_title and 'Just a moment' not in current_title:
+                    break
+                print(f"CloudFlare attempt {attempt + 1}, waiting...")
+                page.wait_for_timeout(5000)
                 
-            # Wait for actual page content
-            try:
-                page.wait_for_selector('body:not(:has-text("רק רגע"))', timeout=15000)
-            except:
-                pass
+            # Simulate human interaction
+            page.mouse.move(500, 300)
+            page.wait_for_timeout(2000)
+            page.mouse.click(500, 300)
+            page.wait_for_timeout(3000)
                 
             # Wait for products to load
             try:
-                page.wait_for_selector('.products, .product-items, [data-role="product"], .catalog-product-view', timeout=15000)
+                page.wait_for_selector('.products, .product-items, [data-role="product"], .catalog-product-view', timeout=20000)
             except:
                 pass
             
             page.wait_for_timeout(5000)
             page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-            page.wait_for_timeout(3000)
-            
-            # Simulate human behavior
-            page.mouse.move(100, 100)
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(5000)
             
         except Exception as e:
             send_telegram_message(f"❌ שגיאה בטעינת הדף: {str(e)}")
@@ -227,6 +238,21 @@ def check_shoes():
             current_state[key] = {
                 "title": title, "link": link,
                 "price": price_val, "img_url": img_url
+            }
+
+            if key not in previous_state:
+                caption = f"*{title}* - ₪{price_val}\n[לינק למוצר]({link})"
+                try:
+                    send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
+                except Exception as e:
+                    send_telegram_message(f"מוצר חדש: {caption}\n(שגיאה בתמונה: {str(e)})")
+
+        browser.close()
+
+    save_current_state(current_state)
+
+if __name__ == "__main__":
+    check_shoes()l": img_url
             }
 
             if key not in previous_state:
