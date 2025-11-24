@@ -51,26 +51,63 @@ def check_shoes():
     print(f"Checking: {url}")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-blink-features=AutomationControlled']
+        )
         context = browser.new_context(
             locale='he-IL',
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080},
+            extra_http_headers={
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'he-IL,he;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            }
         )
         page = context.new_page()
+        
+        # Remove automation indicators
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+            });
+        """)
         
         try:
             page.goto(url, timeout=60000)
             page.wait_for_load_state('domcontentloaded')
             
+            # Wait for CloudFlare/loading to finish
+            page.wait_for_timeout(5000)
+            
+            # Check if still on loading page
+            current_title = page.title()
+            if 'רק רגע' in current_title or 'Just a moment' in current_title:
+                page.wait_for_timeout(10000)  # Wait longer for CloudFlare
+                
+            # Wait for actual page content
+            try:
+                page.wait_for_selector('body:not(:has-text("רק רגע"))', timeout=15000)
+            except:
+                pass
+                
             # Wait for products to load
             try:
-                page.wait_for_selector('.products, .product-items, [data-role="product"]', timeout=10000)
+                page.wait_for_selector('.products, .product-items, [data-role="product"], .catalog-product-view', timeout=15000)
             except:
                 pass
             
-            page.wait_for_timeout(8000)
+            page.wait_for_timeout(5000)
             page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
             page.wait_for_timeout(3000)
+            
+            # Simulate human behavior
+            page.mouse.move(100, 100)
+            page.wait_for_timeout(1000)
             
         except Exception as e:
             send_telegram_message(f"❌ שגיאה בטעינת הדף: {str(e)}")
@@ -108,8 +145,15 @@ def check_shoes():
         
         # Debug info
         page_title = soup.select_one('title')
-        debug_info = f"Page title: {page_title.text if page_title else 'No title'}\nFound {len(product_cards)} products"
+        current_url = page.url
+        debug_info = f"Page title: {page_title.text if page_title else 'No title'}\nCurrent URL: {current_url}\nFound {len(product_cards)} products"
         print(debug_info)
+        
+        # Check if we're still on a loading/error page
+        if page_title and ('רק רגע' in page_title.text or 'Just a moment' in page_title.text or 'Access denied' in page_title.text):
+            send_telegram_message(f"⚠️ נתקלנו בדף טעינה/חסימה: {page_title.text}")
+            browser.close()
+            return
         
         if not product_cards:
             # Try even more selectors
