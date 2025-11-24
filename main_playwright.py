@@ -94,38 +94,77 @@ def check_shoes():
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            context = browser.new_context(locale='he-IL')
+            context = browser.new_context(
+                locale='he-IL',
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
             page = context.new_page()
-            page.goto(url, timeout=60000)
+            
+            try:
+                page.goto(url, timeout=60000)
+                page.wait_for_load_state('networkidle', timeout=30000)
+            except Exception as e:
+                send_telegram_message(f"❌ שגיאה בטעינת הדף: {str(e)}")
+                browser.close()
+                continue
 
-            while True:
+            # Try to load more products
+            load_attempts = 0
+            while load_attempts < 5:
                 try:
-                    load_more = page.query_selector("a.action.more")
-                    if load_more:
+                    load_more = page.query_selector("a.action.more") or page.query_selector(".load-more") or page.query_selector("[data-role='load-more']")
+                    if load_more and load_more.is_visible():
                         load_more.click()
-                        page.wait_for_timeout(1500)
+                        page.wait_for_timeout(2000)
+                        load_attempts += 1
                     else:
                         break
-                except:
+                except Exception as e:
+                    print(f"Load more error: {e}")
                     break
 
+            # Wait for products to load
+            page.wait_for_timeout(3000)
+            
             soup = BeautifulSoup(page.content(), 'html.parser')
-            product_cards = soup.select('div.product')
-
+            
+            # Try multiple selectors for products
+            product_cards = soup.select('div.product') or soup.select('.product-item') or soup.select('[data-product-id]') or soup.select('.item.product')
+            
+            # Debug: Print page title and found elements
+            page_title = soup.select_one('title')
+            debug_info = f"Page title: {page_title.text if page_title else 'No title'}\nFound {len(product_cards)} products"
+            print(debug_info)
+            
             # ✨ אם לא נמצאו מוצרים → צלמו ושילחו Screenshot
             if not product_cards:
                 screenshot_path = f"debug_{user_id}.png"
                 page.screenshot(path=screenshot_path, full_page=True)
-                send_local_photo(screenshot_path, "📸 *Debug Screenshot:* לא נמצאו מוצרים")
+                send_local_photo(screenshot_path, f"📸 *Debug Screenshot:* לא נמצאו מוצרים\n{debug_info}")
                 browser.close()
                 continue
 
             for card in product_cards:
-                link_tag = card.select_one("a")
-                img_tag = card.select_one("img")
-                price_tags = card.select("span.price")
+                # Try multiple selectors for links and images
+                link_tag = card.select_one("a") or card.select_one(".product-item-link")
+                img_tag = card.select_one("img") or card.select_one(".product-image img")
+                
+                # Try multiple selectors for price
+                price_tags = (card.select("span.price") or 
+                             card.select(".price") or 
+                             card.select(".regular-price") or 
+                             card.select("[data-price]"))
 
-                title = img_tag['alt'].strip() if img_tag and img_tag.has_attr('alt') else "ללא שם"
+                # Get title from multiple sources
+                title = ""
+                if img_tag and img_tag.has_attr('alt'):
+                    title = img_tag['alt'].strip()
+                elif img_tag and img_tag.has_attr('title'):
+                    title = img_tag['title'].strip()
+                else:
+                    title_tag = card.select_one('.product-name') or card.select_one('h2') or card.select_one('h3')
+                    title = title_tag.text.strip() if title_tag else "ללא שם"
+                
                 link = link_tag['href'] if link_tag and link_tag.has_attr('href') else None
                 if not link:
                     continue
@@ -133,18 +172,36 @@ def check_shoes():
                     link = "https://www.timberland.co.il" + link
 
                 img_url = img_tag['src'] if img_tag and img_tag.has_attr('src') else None
+                if img_url and not img_url.startswith('http'):
+                    img_url = "https://www.timberland.co.il" + img_url
+                    
                 prices = []
                 for tag in price_tags:
                     try:
                         text = tag.text.strip().replace('\xa0', '').replace('₪', '').replace(',', '')
-                        price_val = float(text)
-                        if price_val > 0:
-                            prices.append(price_val)
+                        # Extract numbers from text
+                        import re
+                        numbers = re.findall(r'\d+(?:\.\d+)?', text)
+                        for num in numbers:
+                            price_val = float(num)
+                            if price_val > 0:
+                                prices.append(price_val)
                     except:
                         continue
 
                 if not prices:
-                    continue
+                    # Try to find price in data attributes or other locations
+                    price_attr = card.get('data-price') or card.select_one('[data-price]')
+                    if price_attr:
+                        try:
+                            price_val = float(price_attr.get('data-price', '0'))
+                            if price_val > 0:
+                                prices = [price_val]
+                        except:
+                            pass
+                    
+                    if not prices:
+                        continue
 
                 price_val = min(prices)
                 key = f"{user_id}_{link}"
@@ -155,7 +212,10 @@ def check_shoes():
 
                 if key not in previous_state:
                     caption = f"*{title}* - ₪{price_val}\n[לינק למוצר]({link})"
-                    send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
+                    try:
+                        send_photo_with_caption(img_url or "https://via.placeholder.com/300", caption)
+                    except Exception as e:
+                        send_telegram_message(f"מוצר חדש: {caption}\n(שגיאה בתמונה: {str(e)})")
 
             browser.close()
 
