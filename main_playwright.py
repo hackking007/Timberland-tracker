@@ -102,7 +102,19 @@ def check_shoes():
             try:
                 page.goto(url, timeout=60000)
                 page.wait_for_load_state('domcontentloaded')
-                page.wait_for_timeout(5000)  # Wait 5 seconds for content to load
+                
+                # Wait for products to load dynamically
+                try:
+                    page.wait_for_selector('.products, .product-items, [data-role="product"]', timeout=10000)
+                except:
+                    pass
+                
+                page.wait_for_timeout(8000)  # Wait longer for JS to load
+                
+                # Scroll to trigger lazy loading
+                page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                page.wait_for_timeout(3000)
+                
             except Exception as e:
                 send_telegram_message(f"❌ שגיאה בטעינת הדף: {str(e)}")
                 browser.close()
@@ -124,32 +136,54 @@ def check_shoes():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
             
-            # Try multiple selectors for products based on Magento structure
+            # Try multiple selectors for products - broader search
             product_cards = (soup.select('li.item.product.product-item') or 
                            soup.select('.product-item') or 
                            soup.select('li.product-item') or
                            soup.select('.products .product') or
                            soup.select('ol.products li') or
-                           soup.select('.product-items li'))
+                           soup.select('.product-items li') or
+                           soup.select('div[data-role="product"]') or
+                           soup.select('.product') or
+                           soup.select('[class*="product-"]') or
+                           soup.select('article') or
+                           soup.select('.item'))
             
             # Debug info
             page_title = soup.select_one('title')
             debug_info = f"Page title: {page_title.text if page_title else 'No title'}\nFound {len(product_cards)} products"
             print(debug_info)
             
-            # Additional debug - check for common Magento selectors
-            all_elements = soup.select('li')
-            product_related = [el for el in all_elements if 'product' in str(el.get('class', []))]
+            # Enhanced debug - check page structure
+            all_elements = soup.select('*')
+            divs = soup.select('div')
+            articles = soup.select('article')
+            product_related = [el for el in all_elements if el.get('class') and any('product' in cls.lower() for cls in el.get('class', []))]
             
-            debug_info += f"\nAll li elements: {len(all_elements)}\nProduct-related li: {len(product_related)}"
+            debug_info += f"\nTotal elements: {len(all_elements)}\nDivs: {len(divs)}\nArticles: {len(articles)}\nProduct-related: {len(product_related)}"
+            
+            # Check if page shows "no products" message
+            no_products_msg = soup.select_one('.message, .notice, [class*="empty"], [class*="no-product"]')
+            if no_products_msg:
+                debug_info += f"\nNo products message: {no_products_msg.text.strip()}"
             
             if not product_cards:
-                # Try alternative selectors
-                product_cards = soup.select('li[class*="product"]')
+                # Try even more alternative selectors
+                product_cards = (soup.select('li[class*="product"]') or
+                               soup.select('div[class*="product"]') or
+                               soup.select('[data-product]') or
+                               soup.select('.grid-item') or
+                               soup.select('.catalog-item'))
+                
                 if not product_cards:
+                    # Save HTML for debugging
+                    html_debug = f"debug_{user_id}.html"
+                    with open(html_debug, 'w', encoding='utf-8') as f:
+                        f.write(page.content())
+                    
                     screenshot_path = f"debug_{user_id}.png"
                     page.screenshot(path=screenshot_path, full_page=True)
-                    send_local_photo(screenshot_path, f"📸 *Debug Screenshot:* לא נמצאו מוצרים\n{debug_info}")
+                    send_local_photo(screenshot_path, f"📸 *Debug Screenshot:* לא נמצאו מוצרים\n{debug_info}\nHTML saved to: {html_debug}")
                     browser.close()
                     continue
 
@@ -224,4 +258,5 @@ def check_shoes():
     save_current_state(current_state)
 
 if __name__ == "__main__":
+    check_shoes()__main__":
     check_shoes()
